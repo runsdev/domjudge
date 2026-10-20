@@ -127,6 +127,7 @@ function initStatementPanel(problem) {
 function initEditor(editor, form, problem, language) {
     const model = editor.getModel();
     initDrafts(editor, form, problem, language);
+    initRun(editor, language);
 
     let javaClass = javaPublicClass(model.getValue());
     model.onDidChangeContent($.debounce(() => {
@@ -144,6 +145,49 @@ function initEditor(editor, form, problem, language) {
     });
     registerCompletions(model.getLanguageId());
     lintModel(model);
+}
+
+// Run the code with the given input on the Piston server, see SubmissionController::runAction().
+function initRun(editor, language) {
+    const button = document.getElementById('paste-run-button');
+    if (!button) {
+        return;
+    }
+    const input = document.getElementById('paste-run-input');
+    const status = document.getElementById('paste-run-status');
+    const output = document.getElementById('paste-run-output');
+
+    button.addEventListener('click', async () => {
+        button.disabled = true;
+        status.textContent = 'Running…';
+        output.textContent = '';
+        try {
+            // Unlike FormData, this keeps the line endings.
+            const response = await fetch(button.dataset.url, {
+                method: 'POST',
+                body: new URLSearchParams({language: language.value, code: editor.getValue(), input: input.value}),
+            });
+            [status.textContent, output.textContent] = runResult(await response.json());
+        } catch (e) {
+            status.textContent = 'Running the code failed.';
+        }
+        button.disabled = false;
+    });
+}
+
+// The status line and output of a run, from Piston's response.
+function runResult(result) {
+    if (result.error) {
+        return [result.error, ''];
+    }
+    const {compile, run} = result;
+    const compiler = `${result.language} ${result.version}, the judge may differ`;
+    // When compiling fails, Piston repeats its output as the run.
+    if (compile && compile.code !== 0) {
+        return [`${compile.status === 'TO' ? 'Compiling took too long' : 'Compilation failed'} (${compiler})`, compile.output];
+    }
+    const message = run.message || `Finished in ${(run.wall_time / 1000).toFixed(2)} s`;
+    return [`${message} (${compiler})`, run.output];
 }
 
 // Keep a draft per problem in the browser, so code survives reloads, logouts,

@@ -49,6 +49,9 @@ download, save or print statements, samples or the problemset; only Markdown
 statements are shown, see :doc:`problem-format`, and the public pages show no
 statements or samples.
 
+The code editor can also run the code with input typed by the team, see
+:ref:`run-code`.
+
 Let teams log in automatically based on their IP address (see
 :ref:`authentication`, ``auth_methods`` and ``ip_autologin``), so the
 workstation can start the browser directly after booting.

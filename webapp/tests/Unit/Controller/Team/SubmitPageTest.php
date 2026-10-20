@@ -8,7 +8,10 @@ use App\Entity\Problem;
 use App\Entity\Submission;
 use App\Tests\Unit\BaseTestCase;
 use Doctrine\ORM\EntityManagerInterface;
+use Generator;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Symfony\Component\HttpClient\MockHttpClient;
+use Symfony\Component\HttpClient\Response\MockResponse;
 
 class SubmitPageTest extends BaseTestCase
 {
@@ -253,5 +256,68 @@ class SubmitPageTest extends BaseTestCase
             static::assertGreaterThan(0, $links->count());
             static::assertCount(0, $links->filter('[data-ajax-modal]'));
         });
+    }
+
+    public function testEditorHasRunButtonWithPiston(): void
+    {
+        $this->withChangedConfiguration('submit_methods', ['paste'], function (): void {
+            $this->verifyPageResponse('GET', '/team/submit', 200);
+            static::assertCount(0, $this->getCurrentCrawler()->filter('#paste-run-button'));
+
+            $this->withChangedConfiguration('piston_url', 'http://piston.test:2000', function (): void {
+                $this->verifyPageResponse('GET', '/team/submit', 200);
+                static::assertSame('/team/run', $this->getCurrentCrawler()->filter('#paste-run-button')->attr('data-url'));
+            });
+        });
+    }
+
+    public function testRunNeedsPiston(): void
+    {
+        $this->client->request('POST', '/team/run', ['language' => 'cpp', 'code' => 'int main() {}']);
+        static::assertResponseStatusCodeSame(404);
+    }
+
+    public function testRunNeedsAllowedLanguage(): void
+    {
+        $this->withChangedConfiguration('piston_url', 'http://piston.test:2000', function (): void {
+            $this->client->request('POST', '/team/run', ['language' => 'nope', 'code' => 'int main() {}']);
+            static::assertResponseStatusCodeSame(400);
+        });
+    }
+
+    #[DataProvider('runProvider')]
+    public function testRun(MockResponse $pistonResponse, int $status, array $expected): void
+    {
+        $requests = [];
+        self::getContainer()->set('http_client', new MockHttpClient(
+            function (string $method, string $url, array $options) use (&$requests, $pistonResponse): MockResponse {
+                $requests[] = [$method, $url, json_decode($options['body'], true)];
+                return $pistonResponse;
+            }
+        ));
+
+        $this->withChangedConfiguration('piston_url', 'http://piston.test:2000/', function () use ($status, $expected, &$requests): void {
+            $this->client->request('POST', '/team/run', ['language' => 'cpp', 'code' => "int main() {}\n", 'input' => "1 2\n"]);
+            static::assertResponseStatusCodeSame($status);
+            static::assertSame($expected, json_decode($this->client->getResponse()->getContent(), true));
+            static::assertSame([[
+                'POST',
+                'http://piston.test:2000/api/v2/execute',
+                ['language' => 'cpp', 'version' => '*', 'files' => [['name' => 'main.cpp', 'content' => "int main() {}\n"]], 'stdin' => "1 2\n"],
+            ]], $requests);
+        });
+    }
+
+    public static function runProvider(): Generator
+    {
+        $result = ['run' => ['stdout' => "3\n", 'code' => 0], 'language' => 'c++', 'version' => '10.2.0'];
+        yield 'ran' => [new MockResponse(json_encode($result + ['other' => 1])), 200, $result];
+        yield 'unknown language' => [
+            new MockResponse('{"message":"cpp-* runtime is unknown"}', ['http_code' => 400]),
+            400,
+            ['error' => 'Running C++ code is not available.'],
+        ];
+        yield 'server error' => [new MockResponse('', ['http_code' => 500]), 503, ['error' => 'Running code is not available right now.']];
+        yield 'server down' => [new MockResponse('', ['error' => 'Connection refused']), 503, ['error' => 'Running code is not available right now.']];
     }
 }

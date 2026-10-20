@@ -24,12 +24,15 @@ use Symfony\Component\ExpressionLanguage\Expression;
 use Symfony\Component\Form\FormFactoryInterface;
 use Symfony\Component\Form\FormInterface;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
+use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 #[IsGranted('ROLE_TEAM')]
 #[IsGranted(
@@ -110,6 +113,7 @@ class SubmissionController extends BaseController
             'upload_form' => $uploadForm?->createView(),
             'paste_form' => $pasteForm?->createView(),
             'submit_methods' => $submitMethods,
+            'run_available' => (bool)$this->config->get('piston_url'),
         ];
         $templateData['validFilenameRegex'] = SubmissionService::FILENAME_REGEX;
         if ($contest && $team) {
@@ -216,6 +220,56 @@ class SubmissionController extends BaseController
         $uploadedFile = new UploadedFile($tmpFile, $filename, null, null, true);
 
         return [[$uploadedFile], $tmpFile];
+    }
+
+    /**
+     * Run code from the code editor with the given input on the Piston server of the piston_url setting.
+     */
+    #[Route(path: '/run', name: 'team_run', methods: ['POST'])]
+    public function runAction(Request $request, HttpClientInterface $httpClient): JsonResponse
+    {
+        $pistonUrl = $this->config->get('piston_url');
+        $contest   = $this->dj->getCurrentContest($this->authService->getUser()->getTeam()->getTeamid());
+        if (!$pistonUrl || !$contest) {
+            throw new NotFoundHttpException('Running code is not available.');
+        }
+
+        $language = $this->em->getRepository(Language::class)->findOneBy(['externalid' => $request->request->get('language')]);
+        if (!$language || !in_array($language, $this->dj->getAllowedLanguagesForContest($contest), true)) {
+            return new JsonResponse(['error' => 'Select a language to run the code.'], 400);
+        }
+        $code  = (string)$request->request->get('code');
+        $input = (string)$request->request->get('input');
+        $limit = (int)$this->config->get('sourcesize_limit');
+        if (strlen($code) > $limit * 1024 || strlen($input) > $limit * 1024) {
+            return new JsonResponse(['error' => sprintf('The code and the input can be at most %d kB each.', $limit)], 400);
+        }
+
+        $result = [];
+        try {
+            // Piston uses the languages' external IDs as aliases, e.g. cpp and python3.
+            // The time and memory limits are those of the Piston server.
+            $response = $httpClient->request('POST', rtrim($pistonUrl, '/') . '/api/v2/execute', [
+                'json' => [
+                    'language' => $language->getExternalid(),
+                    'version' => '*',
+                    'files' => [['name' => 'main.' . ($language->getExtensions()[0] ?? 'txt'), 'content' => $code]],
+                    'stdin' => $input,
+                ],
+                'timeout' => 60,
+            ]);
+            $status = $response->getStatusCode();
+            $result = $response->toArray(false);
+        } catch (ExceptionInterface) {
+            $status = 0;
+        }
+        if ($status === 400) {
+            return new JsonResponse(['error' => sprintf('Running %s code is not available.', $language->getName())], 400);
+        }
+        if ($status !== 200) {
+            return new JsonResponse(['error' => 'Running code is not available right now.'], 503);
+        }
+        return new JsonResponse(array_intersect_key($result, array_flip(['compile', 'run', 'language', 'version'])));
     }
 
     /**

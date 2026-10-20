@@ -1085,6 +1085,30 @@ blockquote {
     }
 }
 
+/* Input and output of running the code, below the editor */
+.paste-editor-column {
+    min-width: 0;
+}
+
+.paste-run {
+    flex: none;
+    height: 30%;
+    min-height: 6rem;
+}
+
+.paste-run > div {
+    flex: 1;
+    min-width: 0;
+}
+
+.paste-run textarea {
+    resize: none;
+}
+
+.paste-run pre {
+    overflow: auto;
+}
+
 /* Covers the team pages in lockdown until the browser is in full screen */
 .fullscreen-required {
     text-align: center;

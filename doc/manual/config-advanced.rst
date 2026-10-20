@@ -351,6 +351,41 @@ Additionally, the command-line submit client also supports printing.
 Run ``submit --help`` to see the available options for printing via
 the submit client.
 
+.. _run-code:
+
+Running code from the editor
+----------------------------
+The team code editor can run code with input that the team types, to try it
+out without submitting. DOMjudge sends the code to a
+`Piston <https://github.com/engineer-man/piston>`_ server, which compiles
+and runs it without network access. Start one (it needs a privileged
+container and cgroup v2) with, for example::
+
+  docker run --privileged -d --restart unless-stopped --name piston -p 2000:2000 \
+    -v piston-packages:/piston/packages \
+    -e PISTON_OUTPUT_MAX_SIZE=1048576 \
+    -e PISTON_RUN_TIMEOUT=10000 -e PISTON_RUN_CPU_TIME=10000 \
+    -e PISTON_RUN_MEMORY_LIMIT=1073741824 \
+    -e PISTON_LIMIT_OVERRIDES='{"kotlin":{"compile_timeout":60000,"compile_cpu_time":60000}}' \
+    ghcr.io/engineer-man/piston
+
+Without ``PISTON_OUTPUT_MAX_SIZE``, Piston returns no output when there is more
+than 1 kB of it, and without the override the Kotlin compiler does not finish
+within the default compile limits. Piston needs internet access only to install
+the compilers, for example::
+
+  for p in gcc:10.2.0 python:3.12.0 java:15.0.2 kotlin:1.8.20; do
+    curl -X POST http://localhost:2000/api/v2/packages -H 'Content-Type: application/json' \
+      -d "{\"language\": \"${p%%:*}\", \"version\": \"${p##*:}\"}"
+  done
+
+Then set ``piston_url`` to its URL, e.g. ``http://piston-host:2000``; only the
+DOMjudge server connects to it. DOMjudge uses the external ID of a language as
+its Piston name, which works for ``c``, ``cpp``, ``java``, ``kotlin`` and
+``python3``. Piston has its own compiler versions (e.g. GCC 10 with C++17,
+Java 15), which can differ from the judgehosts', so the editor shows the
+version with each result.
+
 .. _multiple-judgedaemons:
 
 Multiple judgedaemons per machine

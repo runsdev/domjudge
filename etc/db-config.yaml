@@ -404,6 +404,12 @@
             public: true
             description: If set, enable teams and jury to send source code to this command. See admin manual for allowed arguments.
             docdescription: See :ref:`printing` for more information.
+        -   name: piston_url
+            type: string
+            default_value: ""
+            public: false
+            description: URL of a [Piston](https://github.com/engineer-man/piston) server, e.g. `http://piston:2000`. If set, teams can run their code with their own input in the code editor.
+            docdescription: See :ref:`run-code` for more information.
         -   name: ccs_api_version
             type: enum
             default_value: 2026-01

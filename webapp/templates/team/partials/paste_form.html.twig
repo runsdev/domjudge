@@ -36,6 +36,11 @@
         </small>
     </div>
     <div class="paste-toolbar-submit align-self-end ms-auto">
+        {% if run_available %}
+            <button type="button" class="btn btn-primary me-2" id="paste-run-button" data-url="{{ path('team_run') }}" title="Run the code with the input below">
+                <i class="fas fa-play"></i> Run
+            </button>
+        {% endif %}
         <button type="submit" class="btn btn-success"><i class="fas fa-cloud-upload-alt"></i> Submit</button>
     </div>
 </div>
@@ -45,8 +50,22 @@
         <iframe title="Problem statement"></iframe>
         <p class="paste-statement-empty text-muted p-3">Select a problem with a statement to show it here.</p>
     </div>
-    <div class="paste-editor-container flex-fill">
-        {{ '' | codeEditor('paste_page', null, true, paste_form.code_content.vars.id) }}
+    <div class="paste-editor-column d-flex flex-column flex-fill">
+        <div class="paste-editor-container flex-fill">
+            {{ '' | codeEditor('paste_page', null, true, paste_form.code_content.vars.id) }}
+        </div>
+        {% if run_available %}
+            <div class="paste-run d-flex border-top">
+                <div class="d-flex flex-column">
+                    <label for="paste-run-input" class="small text-muted px-2 pt-1">Input</label>
+                    <textarea id="paste-run-input" class="form-control font-monospace border-0 rounded-0 flex-fill" spellcheck="false"></textarea>
+                </div>
+                <div class="d-flex flex-column border-start">
+                    <div class="small text-muted px-2 pt-1" id="paste-run-status" aria-live="polite">Output</div>
+                    <pre class="flex-fill m-0 px-2" id="paste-run-output"></pre>
+                </div>
+            </div>
+        {% endif %}
     </div>
 </div>
 {{ form_widget(paste_form.code_content) }}
