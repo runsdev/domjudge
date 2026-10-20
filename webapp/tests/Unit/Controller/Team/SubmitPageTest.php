@@ -2,6 +2,7 @@
 
 namespace App\Tests\Unit\Controller\Team;
 
+use App\Entity\Contest;
 use App\Entity\Language;
 use App\Entity\Problem;
 use App\Entity\Submission;
@@ -18,7 +19,7 @@ class SubmitPageTest extends BaseTestCase
         $this->verifyPageResponse('GET', '/team/submit', 200);
         $content = $this->client->getResponse()->getContent();
 
-        // Default config has 'upload' only, so upload form should be present
+        // Default config includes 'upload', so upload form should be present
         static::assertStringContainsString('submit_problem', $content);
     }
 
@@ -198,5 +199,49 @@ class SubmitPageTest extends BaseTestCase
             static::assertSame($filename, $submission->getFiles()->first()->getFilename());
             static::assertSame($stored ?? $code, $submission->getFiles()->first()->getSourcecode());
         });
+    }
+
+    public function testPastePageShowsStatementsNextToEditor(): void
+    {
+        $this->withChangedConfiguration('submit_methods', ['paste'], function (): void {
+            $this->verifyPageResponse('GET', '/team/submit', 200);
+            $crawler = $this->getCurrentCrawler();
+
+            static::assertCount(1, $crawler->filter('#paste-statement-toggle'));
+            $urls = json_decode($crawler->filter('#paste-statement')->attr('data-statement-urls'), true);
+            static::assertContains(['hello', '/team/problems/hello/statement#navpanes=0'], $urls, json_encode($urls));
+            static::assertStringStartsWith('domjudge-draft/',
+                $crawler->filter('form[name="submit_problem_paste"]')->attr('data-draft-key'));
+        });
+    }
+
+    public function testPastePageFallsBackToContestProblemset(): void
+    {
+        $em = self::getContainer()->get(EntityManagerInterface::class);
+        $em->getRepository(Contest::class)->findOneBy(['shortname' => 'demo'])->setContestProblemsetType('pdf');
+        $em->flush();
+
+        $this->withChangedConfiguration('submit_methods', ['paste'], function (): void {
+            $this->verifyPageResponse('GET', '/team/submit', 200);
+            $urls = json_decode($this->getCurrentCrawler()->filter('#paste-statement')->attr('data-statement-urls'), true);
+            static::assertContains(['', '/team/problemset#navpanes=0'], $urls, json_encode($urls));
+            static::assertContains(['hello', '/team/problems/hello/statement#navpanes=0'], $urls);
+        });
+    }
+
+    public function testEditorPagesGetTheirContentSecurityPolicy(): void
+    {
+        $this->verifyPageResponse('GET', '/team/submit', 200);
+        static::assertStringContainsString("'wasm-unsafe-eval'",
+            $this->client->getResponse()->headers->get('Content-Security-Policy'));
+
+        $this->client->request('GET', '/team/problems/hello/statement');
+        static::assertStringContainsString("frame-ancestors 'self'",
+            $this->client->getResponse()->headers->get('Content-Security-Policy'));
+
+        $this->verifyPageResponse('GET', '/team', 200);
+        $csp = $this->client->getResponse()->headers->get('Content-Security-Policy');
+        static::assertStringNotContainsString('frame-ancestors', $csp);
+        static::assertStringNotContainsString('wasm-unsafe-eval', $csp);
     }
 }

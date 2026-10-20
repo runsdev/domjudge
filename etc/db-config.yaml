@@ -344,6 +344,7 @@
             type: array_val
             default_value:
                 - upload
+                - paste
             public: true
             description: Allowed submission methods in the web interface.
             options:

@@ -1,5 +1,22 @@
-{{ form_start(paste_form, {'attr': {'class': 'd-flex flex-column flex-fill'}}) }}
+{# [problem external ID, statement URL] pairs, falling back to the contest problemset;
+   a hash would renumber numeric IDs on merge. navpanes=0 hides the thumbnails of the
+   PDF viewer, so the page fits the panel width. #}
+{% set problemset_url = current_team_contest.contestProblemsetType is not empty ? path('team_contest_problemset') ~ '#navpanes=0' : null %}
+{% set statement_urls = problemset_url ? [['', problemset_url]] : [] %}
+{% for choice in paste_form.problem.vars.choices %}
+    {% if choice.data.problemstatementType is not empty %}
+        {% set statement_urls = statement_urls | merge([[choice.value, path('team_problem_statement', {probId: choice.value}) ~ '#navpanes=0']]) %}
+    {% elseif problemset_url %}
+        {% set statement_urls = statement_urls | merge([[choice.value, problemset_url]]) %}
+    {% endif %}
+{% endfor %}
+{{ form_start(paste_form, {'attr': {'class': 'd-flex flex-column flex-fill', 'data-draft-key': 'domjudge-draft/' ~ current_team_contest.externalid ~ '/' ~ app.user.team.externalid ~ '/'}}) }}
 <div class="paste-toolbar px-3 py-2 border-bottom d-flex align-items-end gap-3 flex-wrap">
+    <div class="paste-toolbar-field">
+        <button type="button" class="btn btn-outline-secondary" id="paste-statement-toggle" aria-controls="paste-statement" title="Show or hide the problem statement">
+            <i class="fas fa-book-open"></i> Statement
+        </button>
+    </div>
     <div class="paste-toolbar-field">
         {{ form_label(paste_form.problem) }}
         {{ form_widget(paste_form.problem) }}
@@ -22,8 +39,14 @@
     </div>
 </div>
 {% include 'team/partials/rate_limit_warning.html.twig' with {'alert_extra_classes': 'mx-3 mt-2 mb-0'} %}
-<div class="paste-editor-container flex-fill">
-    {{ '' | codeEditor('paste_page', null, true, paste_form.code_content.vars.id) }}
+<div class="paste-workspace d-flex flex-fill">
+    <div class="paste-statement" id="paste-statement" data-statement-urls="{{ statement_urls | json_encode }}" hidden>
+        <iframe title="Problem statement"></iframe>
+        <p class="paste-statement-empty text-muted p-3">Select a problem with a statement to show it here.</p>
+    </div>
+    <div class="paste-editor-container flex-fill">
+        {{ '' | codeEditor('paste_page', null, true, paste_form.code_content.vars.id) }}
+    </div>
 </div>
 {{ form_widget(paste_form.code_content) }}
 {{ form_end(paste_form) }}

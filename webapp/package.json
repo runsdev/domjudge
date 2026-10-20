@@ -4,6 +4,7 @@
     "@fortawesome/fontawesome-free": "^7.1.0",
     "@melloware/coloris": "^0.25.0",
     "@popperjs/core": "^2.11.8",
+    "@vscode/tree-sitter-wasm": "^0.3.1",
     "bootstrap": "^5.3.8",
     "bootstrap-toggle": "^2.2.2",
     "d3": "3.5.17",

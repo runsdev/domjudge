@@ -1044,6 +1044,47 @@ blockquote {
     display: flex !important;
 }
 
+/* Problem statement next to the code editor; drag the corner to resize */
+.paste-workspace {
+    min-height: 0;
+}
+
+.paste-statement {
+    display: flex;
+    flex: none;
+    width: 40%;
+    min-width: 12rem;
+    max-width: 80%;
+    resize: horizontal;
+    overflow: hidden;
+    border-right: 1px solid #dee2e6;
+}
+
+.paste-statement iframe {
+    flex: 1;
+    border: 0;
+}
+
+.paste-statement:not(.has-statement) iframe,
+.paste-statement.has-statement .paste-statement-empty {
+    display: none;
+}
+
+@media (max-width: 767.98px) {
+    .paste-workspace {
+        flex-direction: column;
+    }
+
+    .paste-statement {
+        width: auto;
+        max-width: none;
+        height: 40%;
+        resize: vertical;
+        border-right: 0;
+        border-bottom: 1px solid #dee2e6;
+    }
+}
+
 /* Allowed Languages page styles */
 .language-card {
     border: 1px solid #dee2e6;

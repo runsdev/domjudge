@@ -43,7 +43,8 @@ become of importance when you run into problems.
 
      Web interface
        From your team page, |baseurlteam|, click the green **Submit**
-       button in the menu bar. Select the files you want to submit.
+       button in the menu bar. Select the files you want to submit, or
+       write your code in the code editor if it is enabled.
        By default, the problem is selected from the base of the (first)
        filename and the language from the extension. The web interface tries
        to auto-detect the main class (for Java and Kotlin) or the main file (for
@@ -161,6 +162,14 @@ problem, language and main class (in case of Java and Kotlin) or main file
 Otherwise, select the appropriate values.
 Filenames must start with an alphanumerical character and may contain only
 alphanumerical characters and ``+.\_-``.
+
+If the code editor is enabled, you can also write or paste your code
+directly in the browser: select the problem and language at the top and
+press *Submit*. The editor shows the problem statement next to your code,
+completes keywords and common library functions (type ``main`` for a
+program template) and underlines syntax errors. Your code is saved per
+problem in the browser, also after submitting, so you can continue where
+you left off. For Java, the file is named after your public class.
 
 After you hit the submit button and confirm the submission, you will
 be redirected back to your submission list page. On this page, a message

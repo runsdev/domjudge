@@ -43,7 +43,11 @@ Version 10.0.0DEV
    line endings and whitespace of the code, name files after the problem
    also for languages that require an entry point, and offer all languages
    when it is opened for a problem.
+ - Team code editor: keep a draft per problem in the browser, show the
+   problem statement next to the editor, complete keywords, library
+   functions and snippets, and mark syntax errors (tree-sitter).
  - Configuration changes
+   - `submit_methods` now also enables the code editor (`paste`) by default.
    - `show_balloons_postfreeze` configuration variable superseded by
      `minimum_number_of_balloons` and `any_balloon_postfreeze`.
    - `event_feed_format` configuration variable superseded by

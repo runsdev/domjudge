@@ -324,7 +324,9 @@
 
             var filenameEl = document.querySelector('.paste-derived-filename[data-form-prefix="submit_problem_paste"]');
             var filename = filenameEl ? filenameEl.textContent : '';
+            var syntaxErrors = typeof monaco === 'undefined' ? 0 : monaco.editor.getModelMarkers({owner: 'syntax'}).length;
             var question =
+                (syntaxErrors ? 'Warning: the editor found ' + syntaxErrors + ' possible syntax error(s).\n\n' : '') +
                 'File: ' + filename + '\n' +
                 'Problem: ' + problemtxt + '\n' +
                 'Language: ' + languagetxt + '\n' +

@@ -7,9 +7,13 @@
         <script src="{{ asset('js/monaco/vs/loader.js') }}"></script>
         <script>
             {# A bit ugly to do the replace, but Symfony adds a version to any asset URLs so remove it again #}
-            require.config({ paths: { vs: '{{ asset('js/monaco/vs') }}'.replace(/\?.*/, '') } });
+            require.config({ paths: {
+                vs: '{{ asset('js/monaco/vs') }}'.replace(/\?.*/, ''),
+                'tree-sitter': '{{ asset('js/tree-sitter') }}'.replace(/\?.*/, ''),
+            } });
             window.editorThemeFolder = '{{ asset('js/monaco/themes') }}'.replace(/\?.*/, '');
         </script>
+        <script src="{{ asset('js/team-editor.js') }}"></script>
     {% endif %}
 {% endblock %}
 
