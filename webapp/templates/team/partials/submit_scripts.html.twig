@@ -72,6 +72,13 @@
         }
     }
 
+    // Name of the public top-level Java class; javac wants it in a file of the
+    // same name. Keep in sync with SubmissionController::buildPasteFiles().
+    function javaPublicClass(code) {
+        var match = (code || '').match(/^(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:abstract|final|sealed|non-sealed|strictfp)\s+)*public\s+(?:(?:abstract|final|sealed|non-sealed|strictfp)\s+)*(?:class|interface|enum|record)\s+(\w+)/m);
+        return match ? match[1] : '';
+    }
+
     // Get problem shortname from problem select (text is "SHORT - Name").
     function getProblemShortname(formPrefix) {
         var probSelect = document.getElementById(formPrefix + '_problem');
@@ -96,6 +103,11 @@
         }
 
         var filename = shortname + '.' + ext;
+        var codeContent = document.getElementById(formPrefix + '_code_content');
+        var publicClass = ext === 'java' && codeContent ? javaPublicClass(codeContent.value) : '';
+        if (publicClass) {
+            filename = publicClass + '.java';
+        }
 
         // Show/hide entry point and derive its value from the filename.
         // The paste toolbar uses [data-entry-point-toolbar] as wrapper;

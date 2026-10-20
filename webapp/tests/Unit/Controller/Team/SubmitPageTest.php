@@ -2,7 +2,12 @@
 
 namespace App\Tests\Unit\Controller\Team;
 
+use App\Entity\Language;
+use App\Entity\Problem;
+use App\Entity\Submission;
 use App\Tests\Unit\BaseTestCase;
+use Doctrine\ORM\EntityManagerInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class SubmitPageTest extends BaseTestCase
 {
@@ -144,6 +149,54 @@ class SubmitPageTest extends BaseTestCase
             // Should NOT have modal trigger
             $modalLinks = $crawler->filter('a[data-ajax-modal][href*="team/submit"]');
             static::assertCount(0, $modalLinks);
+        });
+    }
+
+    public function testPasteFormOffersAllLanguagesForProblemWithLanguages(): void
+    {
+        $em = self::getContainer()->get(EntityManagerInterface::class);
+        $hello = $em->getRepository(Problem::class)->findOneBy(['externalid' => 'hello']);
+        $hello->addLanguage($em->getRepository(Language::class)->findOneBy(['externalid' => 'cpp']));
+        $em->flush();
+
+        $this->withChangedConfiguration('submit_methods', ['upload', 'paste'], function () use ($hello): void {
+            $this->verifyPageResponse('GET', '/team/submit/' . $hello->getProbid(), 200);
+            $crawler = $this->getCurrentCrawler();
+            // The upload form is for this problem only, the code editor can switch problems.
+            static::assertSame(['', 'cpp'], $crawler->filter('#submit_problem_language option')->extract(['value']));
+            static::assertContains('java', $crawler->filter('#submit_problem_paste_language option')->extract(['value']));
+        });
+    }
+
+    public static function pasteSubmissionProvider(): \Generator
+    {
+        yield 'C++ uses the problem name' => ['cpp', "int main() { return 0; }\n", 'A.cpp'];
+        yield 'Java uses the public class' => ['java', "import java.util.*;\n\npublic final class Main {\n    public static void main(String[] args) {}\n}\n", 'Main.java'];
+        yield 'Java without public class' => ['java', "class Main {\n    public static void main(String[] args) {}\n}\n", 'A.java'];
+        yield 'Java with annotation and modifiers' => ['java', "@SuppressWarnings(\"unchecked\") final public class Sol {\n    public static void main(String[] args) {}\n}\n", 'Sol.java'];
+        yield 'Python uses the problem name' => ['python3', "print('hello world')\n", 'A.py'];
+        yield 'Browser CRLF line endings become LF' => ['cpp', "int main() {\r\n    return 0;\r\n}\r\n", 'A.cpp', "int main() {\n    return 0;\n}\n"];
+    }
+
+    #[DataProvider('pasteSubmissionProvider')]
+    public function testPasteSubmission(string $language, string $code, string $filename, ?string $stored = null): void
+    {
+        $this->withChangedConfiguration('submit_methods', ['paste'], function () use ($language, $code, $filename, $stored): void {
+            $this->verifyPageResponse('GET', '/team/submit', 200);
+            $this->client->submitForm('Submit', [
+                'submit_problem_paste[problem]' => 'hello',
+                'submit_problem_paste[language]' => $language,
+                'submit_problem_paste[code_content]' => $code,
+            ]);
+            static::assertTrue($this->client->getResponse()->isRedirect());
+
+            /** @var Submission $submission */
+            $submission = self::getContainer()->get(EntityManagerInterface::class)
+                ->getRepository(Submission::class)->findOneBy([], ['submitid' => 'DESC']);
+            static::assertSame('hello', $submission->getProblem()->getExternalid());
+            static::assertCount(1, $submission->getFiles());
+            static::assertSame($filename, $submission->getFiles()->first()->getFilename());
+            static::assertSame($stored ?? $code, $submission->getFiles()->first()->getSourcecode());
         });
     }
 }

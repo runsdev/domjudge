@@ -39,6 +39,10 @@ Version 10.0.0DEV
    (replaces the entity) and `PATCH` (updates only the given fields). `POST` to
    teams and organizations no longer updates an existing entity. Groups now
    accept `types`, `css_class` and `allow_password_change` in the API.
+ - Team code editor: name Java files after their public class, keep the
+   line endings and whitespace of the code, name files after the problem
+   also for languages that require an entry point, and offer all languages
+   when it is opened for a problem.
  - Configuration changes
    - `show_balloons_postfreeze` configuration variable superseded by
      `minimum_number_of_balloons` and `any_balloon_postfreeze`.

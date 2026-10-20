@@ -41,6 +41,8 @@ class SubmitProblemType extends AbstractType
         if ($submissionMode === 'paste') {
             $builder->add('code_content', HiddenType::class, [
                 'required' => true,
+                // Submit the code exactly as written.
+                'trim' => false,
             ]);
         } else {
             $allowMultipleFiles = $this->config->get('sourcefiles_limit') > 1;

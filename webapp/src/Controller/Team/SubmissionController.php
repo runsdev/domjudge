@@ -82,8 +82,9 @@ class SubmissionController extends BaseController
 
         // Only create the paste form for the full page (not the modal)
         if (in_array('paste', $submitMethods) && !$request->isXmlHttpRequest()) {
+            // The editor can switch problems, so offer all languages; submitting checks them per problem.
             $pasteForm = $this->formFactory
-                ->createNamedBuilder('submit_problem_paste', SubmitProblemType::class, $data, ['submission_mode' => 'paste'])
+                ->createNamedBuilder('submit_problem_paste', SubmitProblemType::class, ['languages' => []] + $data, ['submission_mode' => 'paste'])
                 ->setAction($this->generateUrl('team_submit'))
                 ->getForm();
         }
@@ -141,7 +142,7 @@ class SubmissionController extends BaseController
 
         $tmpFile = null;
         if ($mode === 'paste') {
-            $result = $this->buildPasteFiles($problem, $language, $contest, $form->get('code_content')->getData(), $entryPoint);
+            $result = $this->buildPasteFiles($problem, $language, $contest, $form->get('code_content')->getData());
             if ($result === null) {
                 return $this->redirectToRoute('team_index');
             }
@@ -180,12 +181,15 @@ class SubmissionController extends BaseController
      *
      * @return array{UploadedFile[], string}|null [files, tmpFilePath], or null if the code content is empty
      */
-    private function buildPasteFiles(Problem $problem, Language $language, Contest $contest, ?string $codeContent, ?string $entryPoint): ?array
+    private function buildPasteFiles(Problem $problem, Language $language, Contest $contest, ?string $codeContent): ?array
     {
-        if (empty($codeContent)) {
+        if ($codeContent === null || trim($codeContent) === '') {
             $this->addFlash('danger', 'No code provided.');
             return null;
         }
+        // Browsers send form fields with CRLF line endings, but the editor uses LF;
+        // a CR would for example break shell scripts.
+        $codeContent = str_replace("\r\n", "\n", $codeContent);
 
         // Determine filename — find the contest problem for the current contest
         $contestProblem = $problem->getContestProblems()->filter(
@@ -194,8 +198,10 @@ class SubmissionController extends BaseController
         $extensions = $language->getExtensions();
         $extension = $extensions[0] ?? 'txt';
 
-        if ($language->getRequireEntryPoint() && $entryPoint !== null) {
-            $filename = $entryPoint . '.' . $extension;
+        // javac requires a public top-level class to be in a file with the same name.
+        // Other languages use the problem name; the entry point is derived from that.
+        if ($extension === 'java' && preg_match('/^(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:abstract|final|sealed|non-sealed|strictfp)\s+)*public\s+(?:(?:abstract|final|sealed|non-sealed|strictfp)\s+)*(?:class|interface|enum|record)\s+(\w+)/m', $codeContent, $matches)) {
+            $filename = $matches[1] . '.java';
         } elseif ($contestProblem !== false) {
             $filename = $contestProblem->getShortname() . '.' . $extension;
         } else {
