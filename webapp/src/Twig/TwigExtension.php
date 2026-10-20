@@ -1104,7 +1104,7 @@ EOF;
     {
         $iconName = match ($type) {
             'pdf' => 'pdf',
-            'txt' => 'alt',
+            'txt', 'md' => 'alt',
             default => 'code',
         };
 
@@ -1319,8 +1319,9 @@ EOF;
 
         /** @var array<string> $latexFound */
         $latexFound = [];
+        // Match $$...$$ first, so markdown does not eat the backslashes of display math either.
         $markdown = preg_replace_callback(
-            '/(\$[\s\S]*?\$)/',
+            '/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/',
             function (array $matches) use ($latexPlaceholder, &$latexFound): string {
                 // Store and replace matches
                 $latexFound[] = $matches[1];
@@ -1337,8 +1338,9 @@ EOF;
             "/$latexPlaceholder/",
             // If the conversion repeated a placeholder (e.g. reused link reference definitions),
             // $latexFound may be exhausted before all placeholders are replaced.
+            // Escape the LaTeX, so for example $a<b$ does not start an HTML tag.
             function () use (&$latexFound): string {
-                return array_shift($latexFound) ?? '';
+                return htmlspecialchars(array_shift($latexFound) ?? '');
             },
             $markdown
         );

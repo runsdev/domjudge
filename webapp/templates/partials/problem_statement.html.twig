@@ -1,0 +1,17 @@
+{# A Markdown problem statement, followed by the sample testcases. #}
+<div class="problem-statement">
+    {{ problem.problemstatement | domjudgeMarkdownToHtml | sanitize_html('app.statement_sanitizer') }}
+    {% for sample in samples %}
+        <h2 class="mt-4">Sample {{ loop.index }}</h2>
+        <div class="row">
+            <div class="col-sm-6">
+                <div class="small text-muted">Input</div>
+                <pre class="border rounded p-2">{{ sample.content.input }}</pre>
+            </div>
+            <div class="col-sm-6">
+                <div class="small text-muted">Output</div>
+                <pre class="border rounded p-2">{{ sample.content.output }}</pre>
+            </div>
+        </div>
+    {% endfor %}
+</div>

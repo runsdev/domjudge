@@ -1,0 +1,23 @@
+{% extends 'base.html.twig' %}
+
+{% import 'macros.html.twig' as macros %}
+
+{% block title %}{{ problem.name }} - {{ parent() }}{% endblock %}
+
+{% block extrahead %}
+    {{ parent() }}
+    {{ macros.mathjax_head() }}
+    {# This page has no navbar. #}
+    <style>body { --navbar-height: 0px; }</style>
+{% endblock %}
+
+{# Leave flash messages for the page this statement is shown in. #}
+{% block messages %}{% endblock %}
+
+{% block content %}
+    <h1 class="h3 mt-3">{{ problem.name }}</h1>
+    {% include 'partials/problem_statement.html.twig' %}
+    {% if team_lockdown and app.request.attributes.get('_route') starts with 'team_' %}
+        <script src="{{ asset('js/team-lockdown.js') }}"></script>
+    {% endif %}
+{% endblock %}

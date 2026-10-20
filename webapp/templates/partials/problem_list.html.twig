@@ -2,10 +2,12 @@
 
 {% set current_route = app.request.attributes.get('_route') %}
 {% set contest_problemset_add_cid = contest_problemset_add_cid | default(false) %}
+{# In lockdown, teams get no downloads and only Markdown statements, the public pages no statements at all. #}
+{% set lockdown = team_lockdown and not (current_route starts with 'jury_') %}
 
 <h1 class="mt-4 text-center">
     {{ contest.name | default('Contest') }} problems
-    {% if contest and show_contest_problemset %}
+    {% if contest and show_contest_problemset and not lockdown %}
         {% if contest.contestProblemsetType is not empty %}
             {% if contest_problemset_add_cid %}
                 {% set contest_problemset_url = path(contest_problemset_path, {'cid': contest.externalid}) %}
@@ -170,15 +172,17 @@
                                             <div style="margin-top: 10px;">
                                             </div>
 
-                                            {% if problem.problem.problemstatementType is not empty %}
+                                            {% set statement_type = problem.problem.problemstatementType %}
+                                            {% if statement_type is not empty and (not lockdown or (statement_type == 'md' and current_route starts with 'team_')) %}
                                                 <a class="btn btn-secondary" role="button"
+                                                   {% if statement_type == 'md' %}data-ajax-modal data-ajax-modal-after="typesetMath"{% endif %}
                                                    href="{{ path(problem_statement_path, {'probId': problem.externalId}) }}">
-                                                    <i class="fas fa-file-{{ problem.problem.problemstatementType }}"></i>
+                                                    <i class="{{ statement_type | fileTypeIcon }}"></i>
                                                     statement
                                                 </a>
                                             {% endif %}
 
-                                            {% if numsamples > 0 %}
+                                            {% if numsamples > 0 and not lockdown %}
                                                 <a class="btn btn-secondary" role="button"
                                                    href="{{ path(problem_sample_zip_path, {'probId': problem.externalId}) }}">
                                                     <i class="fas fa-file-archive"></i> samples

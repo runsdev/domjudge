@@ -217,14 +217,20 @@ class PublicController extends BaseController
     }
 
     #[Route(path: '/problems/{probId}/statement', name: 'public_problem_statement')]
-    public function problemStatementAction(string $probId): StreamedResponse
+    public function problemStatementAction(Request $request, string $probId): Response
     {
+        if ($this->config->get('team_lockdown')) {
+            throw new NotFoundHttpException('Problem statements are not available.');
+        }
         return $this->getBinaryFile($probId, function (
             string $probId,
             Contest $contest,
             ContestProblem $contestProblem
-        ) {
+        ) use ($request) {
             $problem = $contestProblem->getProblem();
+            if ($problem->getProblemstatementType() === 'md') {
+                return $this->renderMarkdownStatement($request, $problem);
+            }
 
             try {
                 return $problem->getProblemStatementStreamedResponse();
@@ -239,7 +245,7 @@ class PublicController extends BaseController
     public function contestProblemsetAction(): StreamedResponse
     {
         $contest = $this->dj->getCurrentContest(onlyPublic: true);
-        if (!$contest || !$contest->getFreezeData()->started()) {
+        if (!$contest || !$contest->getFreezeData()->started() || $this->config->get('team_lockdown')) {
             throw new NotFoundHttpException('Contest problemset not found or not available');
         }
         return $contest->getContestProblemsetStreamedResponse();
@@ -249,7 +255,7 @@ class PublicController extends BaseController
      * @throws NonUniqueResultException
      */
     #[Route(path: '/{probId}/attachment/{attachmentId<\d+>}', name: 'public_problem_attachment')]
-    public function attachmentAction(string $probId, int $attachmentId): StreamedResponse
+    public function attachmentAction(string $probId, int $attachmentId): Response
     {
         return $this->getBinaryFile($probId, fn(
             string $probId,
@@ -259,8 +265,11 @@ class PublicController extends BaseController
     }
 
     #[Route(path: '/{probId}/samples.zip', name: 'public_problem_sample_zip')]
-    public function sampleZipAction(string $probId): StreamedResponse
+    public function sampleZipAction(string $probId): Response
     {
+        if ($this->config->get('team_lockdown')) {
+            throw new NotFoundHttpException('Samples can not be downloaded.');
+        }
         return $this->getBinaryFile($probId, function (string $probId, Contest $contest, ContestProblem $contestProblem) {
             return $this->dj->getSamplesZipStreamedResponse($contestProblem);
         });
@@ -271,7 +280,7 @@ class PublicController extends BaseController
      *
      * Shared code between testcases, problem text and attachments.
      */
-    protected function getBinaryFile(string $probId, callable $response): StreamedResponse
+    protected function getBinaryFile(string $probId, callable $response): Response
     {
         $contest = $this->dj->getCurrentContest(onlyPublic: true);
         if (!$contest || !$contest->getFreezeData()->started()) {

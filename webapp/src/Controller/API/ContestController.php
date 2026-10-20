@@ -440,6 +440,9 @@ class ContestController extends AbstractRestController
     #[OA\Parameter(ref: '#/components/parameters/cid')]
     public function problemsetAction(Request $request, string $cid): Response
     {
+        if ($this->config->get('team_lockdown') && !$this->isGranted('ROLE_API_READER')) {
+            throw new NotFoundHttpException('The problemset is not available.');
+        }
         /** @var Contest|null $contest */
         $contest = $this->getQueryBuilder($request, filterBeforeContest: true)
             ->andWhere(sprintf('%s = :id', $this->getIdField()))
@@ -1014,6 +1017,9 @@ class ContestController extends AbstractRestController
     )]
     public function samplesDataZipAction(Request $request): Response
     {
+        if ($this->config->get('team_lockdown') && !$this->isGranted('ROLE_API_READER')) {
+            throw new NotFoundHttpException('Samples can not be downloaded.');
+        }
         // getContestQueryBuilder add filters to only get the contests that the user
         // has access to.
         /** @var Contest|null $contest */

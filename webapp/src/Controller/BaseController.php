@@ -764,6 +764,21 @@ abstract class BaseController extends AbstractController
     }
 
     /**
+     * Show a Markdown problem statement as a page, or as a modal for AJAX requests.
+     */
+    protected function renderMarkdownStatement(Request $request, Problem $problem): Response
+    {
+        return $this->render(
+            $request->isXmlHttpRequest() ? 'partials/problem_statement_modal.html.twig' : 'partials/problem_statement_page.html.twig',
+            [
+                'problem' => $problem,
+                // Like the samples ZIP, leave out the samples of interactive problems.
+                'samples' => $problem->isInteractiveProblem() ? [] : $this->dj->getSampleTestcases($problem),
+            ]
+        );
+    }
+
+    /**
      * @param callable(): string         $urlGenerator
      * @param callable(): ?Response|null $saveCallback
      */

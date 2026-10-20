@@ -546,11 +546,14 @@ class ProblemController extends BaseController
     }
 
     #[Route(path: '/{probId}/statement', name: 'jury_problem_statement')]
-    public function viewTextAction(string $probId): StreamedResponse
+    public function viewTextAction(Request $request, string $probId): Response
     {
         $problem = $this->em->getRepository(Problem::class)->findByExternalId($probId);
         if (!$problem) {
             throw new NotFoundHttpException(sprintf('Problem with ID %s not found', $probId));
+        }
+        if ($problem->getProblemstatementType() === 'md') {
+            return $this->renderMarkdownStatement($request, $problem);
         }
 
         return $problem->getProblemStatementStreamedResponse();

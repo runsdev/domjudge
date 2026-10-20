@@ -998,7 +998,7 @@ class Utils
 
         if (strrpos($clientName, '.') !== false) {
             $ext = substr($clientName, strrpos($clientName, '.') + 1);
-            if (in_array($ext, ['txt', 'html', 'pdf'])) {
+            if (in_array($ext, ['txt', 'html', 'pdf', 'md'])) {
                 $textType = $ext;
             }
         }
@@ -1033,6 +1033,7 @@ class Utils
             'pdf' => 'application/pdf',
             'html' => 'text/html',
             'txt' => 'text/plain',
+            'md' => 'text/markdown',
             default => throw $exceptionMessage,
         };
 

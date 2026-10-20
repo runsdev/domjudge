@@ -322,6 +322,20 @@ class TwigExtensionTest extends TestCase
     }
 
     /**
+     * Markdown must not see the LaTeX of display math either, since it would eat its
+     * backslashes, and the restored LaTeX is HTML, so its < must not start a tag.
+     */
+    public function testDomjudgeMarkdownToHtmlProtectsLatex(): void
+    {
+        $this->useMarkdownRuntime(static fn(string $markdown): string => '<p>' . stripslashes($markdown) . '</p>');
+
+        self::assertSame(
+            '<p>The set $$\{1,2\}$$ has $a&lt;b$.</p>',
+            $this->twigExtension->domjudgeMarkdownToHTML('The set $$\{1,2\}$$ has $a<b$.')
+        );
+    }
+
+    /**
      * A conversion that drops a placeholder leaves its LaTeX unused. That must not end up in
      * the next document: a single page renders many clarifications through this filter.
      */

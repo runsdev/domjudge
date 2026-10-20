@@ -8,10 +8,13 @@ The base of the format is the `ICPC problem package specification`_.
 
 On top, DOMjudge defines a few extensions:
  * ``domjudge-problem.ini`` (optional): metadata file, see below.
- * ``problem.{pdf,html,txt}`` (optional): problem statements as
-   distributed to participants. The file extension determines any of
-   three supported formats. If multiple files matching this pattern are
-   available, any one of those will be used.
+ * ``problem.{md,pdf,html,txt}`` (optional): problem statements as
+   distributed to participants, also in the directory ``problem_statement``.
+   The file extension determines any of four supported formats. If multiple
+   files matching this pattern are available, the Markdown one is used.
+   Teams see a Markdown statement in the browser, with LaTeX math between
+   ``$`` or ``$$`` signs, images as ``data:`` URLs and the samples added below it.
+   It is the only format shown to teams with the ``team_lockdown`` setting.
  * Annotation with ``@EXPECTED_RESULTS@:`` for jury solutions.
    Use this to annotate the possible outcomes that a submission can have,
    that will be accepted by the Judging verifier.

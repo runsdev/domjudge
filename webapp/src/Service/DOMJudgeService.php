@@ -876,19 +876,26 @@ class DOMJudgeService implements ResetInterface
         return $zipFileContents;
     }
 
-    protected function addSamplesToZip(ZipArchive $zip, ContestProblem $problem, ?string $directory = null): void
+    /**
+     * @return Testcase[]
+     */
+    public function getSampleTestcases(Problem $problem): array
     {
-        /** @var Testcase[] $testcases */
-        $testcases = $this->em->createQueryBuilder()
+        return $this->em->createQueryBuilder()
             ->from(Testcase::class, 'tc')
             ->join('tc.content', 'tcc')
             ->select('tc', 'tcc')
             ->andWhere('tc.problem = :problem')
             ->andWhere('tc.sample = 1')
-            ->setParameter('problem', $problem->getProblem())
+            ->setParameter('problem', $problem)
             ->orderBy('tc.testcaseid')
             ->getQuery()
             ->getResult();
+    }
+
+    protected function addSamplesToZip(ZipArchive $zip, ContestProblem $problem, ?string $directory = null): void
+    {
+        $testcases = $this->getSampleTestcases($problem->getProblem());
 
         foreach ($testcases as $index => $testcase) {
             foreach (['input', 'output'] as $type) {

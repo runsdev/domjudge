@@ -1,11 +1,12 @@
 {# [problem external ID, statement URL] pairs, falling back to the contest problemset;
    a hash would renumber numeric IDs on merge. navpanes=0 hides the thumbnails of the
-   PDF viewer, so the page fits the panel width. #}
-{% set problemset_url = current_team_contest.contestProblemsetType is not empty ? path('team_contest_problemset') ~ '#navpanes=0' : null %}
+   PDF viewer, so the page fits the panel width. In lockdown, teams only get Markdown statements. #}
+{% set problemset_url = current_team_contest.contestProblemsetType is not empty and not team_lockdown ? path('team_contest_problemset') ~ '#navpanes=0' : null %}
 {% set statement_urls = problemset_url ? [['', problemset_url]] : [] %}
 {% for choice in paste_form.problem.vars.choices %}
-    {% if choice.data.problemstatementType is not empty %}
-        {% set statement_urls = statement_urls | merge([[choice.value, path('team_problem_statement', {probId: choice.value}) ~ '#navpanes=0']]) %}
+    {% set statement_type = choice.data.problemstatementType %}
+    {% if statement_type == 'md' or (statement_type is not empty and not team_lockdown) %}
+        {% set statement_urls = statement_urls | merge([[choice.value, path('team_problem_statement', {probId: choice.value}) ~ (statement_type == 'pdf' ? '#navpanes=0' : '')]]) %}
     {% elseif problemset_url %}
         {% set statement_urls = statement_urls | merge([[choice.value, problemset_url]]) %}
     {% endif %}

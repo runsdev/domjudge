@@ -20,6 +20,11 @@
                 load: ['input/tex', 'output/chtml']
             }
         };
+
+        // Typeset math added to the page later, e.g. a problem statement in a modal.
+        function typesetMath() {
+            MathJax.typesetPromise();
+        }
     </script>
     <script src="{{ app.request.basePath }}/mathjax/tex-chtml.js"></script>
 {% endmacro %}

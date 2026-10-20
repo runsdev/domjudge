@@ -40,6 +40,15 @@ to use another profile directory and ``DJ_KIOSK_BROWSER`` to choose the
 browser; extra arguments are passed on to the browser. In kiosk mode,
 :kbd:`Alt+Left` goes back, for example after opening an attachment.
 
+With the ``team_lockdown`` setting, the team pages ask for full screen until
+the browser is in full screen (as with ``dj_kiosk`` or :kbd:`F11`), and copy
+and paste only work within DOMjudge: text copied in other applications cannot
+be pasted into the editor and text copied in DOMjudge does not reach them.
+Dragging text in or out of the pages is blocked as well. Teams can then not
+download, save or print statements, samples or the problemset; only Markdown
+statements are shown, see :doc:`problem-format`, and the public pages show no
+statements or samples.
+
 Let teams log in automatically based on their IP address (see
 :ref:`authentication`, ``auth_methods`` and ``ip_autologin``), so the
 workstation can start the browser directly after booting.

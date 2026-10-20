@@ -315,7 +315,7 @@ readonly class ImportProblemService
         // Add problem statement, also look in obsolete location.
         $statementFound = false;
         foreach (['problem_statement/', ''] as $dir) {
-            foreach (['pdf', 'html', 'txt'] as $type) {
+            foreach (['md', 'pdf', 'html', 'txt'] as $type) {
                 $filename = sprintf('%sproblem.%s', $dir, $type);
                 $text     = $zip->getFromName($filename);
                 if ($text !== false) {

@@ -1,0 +1,9 @@
+{% extends 'partials/modal.html.twig' %}
+
+{% set size = 'xl' %}
+
+{% block title %}{{ problem.name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/problem_statement.html.twig' %}
+{% endblock %}

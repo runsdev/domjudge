@@ -1085,6 +1085,29 @@ blockquote {
     }
 }
 
+/* Covers the team pages in lockdown until the browser is in full screen */
+.fullscreen-required {
+    text-align: center;
+}
+
+/* Hide the page, so it cannot be used next to other windows */
+.fullscreen-required::backdrop {
+    background: var(--bs-body-bg, #fff);
+}
+
+/* Markdown problem statements, see partials/problem_statement.html.twig */
+.problem-statement h1 {
+    font-size: 1.5rem;
+}
+
+.problem-statement h2 {
+    font-size: 1.25rem;
+}
+
+.problem-statement h3 {
+    font-size: 1.1rem;
+}
+
 /* Allowed Languages page styles */
 .language-card {
     border: 1px solid #dee2e6;

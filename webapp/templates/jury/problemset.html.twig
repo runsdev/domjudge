@@ -1,6 +1,13 @@
 {% extends "jury/base.html.twig" %}
 
+{% import 'macros.html.twig' as macros %}
+
 {% block title %}Contest problems {{ current_contest.shortname | default('') }} - {{ parent() }}{% endblock %}
+
+{% block extrahead %}
+    {{ parent() }}
+    {{ macros.mathjax_head() }}
+{% endblock %}
 
 {% block content %}
     {% include 'partials/problem_list.html.twig' with {

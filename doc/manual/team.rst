@@ -171,6 +171,9 @@ program template) and underlines syntax errors. Your code is saved per
 problem in the browser, also after submitting, so you can continue where
 you left off. For Java, the file is named after your public class.
 
+In some contests the team pages only work in full screen, and copy and paste
+only work within DOMjudge.
+
 After you hit the submit button and confirm the submission, you will
 be redirected back to your submission list page. On this page, a message
 will be displayed that your submission was successful and the

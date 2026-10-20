@@ -7,3 +7,8 @@ framework:
                 allow_relative_links: false
                 allowed_link_schemes: ['ignore_all']
                 allowed_media_schemes:  ['ignore_all']
+            # Problem statements come from the jury; they may contain links and images as data: URLs.
+            app.statement_sanitizer:
+                allow_safe_elements: true
+                allowed_link_schemes: ['http', 'https', 'mailto']
+                allowed_media_schemes: ['data']

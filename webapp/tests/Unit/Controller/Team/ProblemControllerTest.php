@@ -160,6 +160,91 @@ class ProblemControllerTest extends BaseTestCase
     }
 
     /**
+     * Use a Markdown statement with math and a script for the fltcmp problem and give it a sample.
+     */
+    private function useMarkdownStatement(): Testcase
+    {
+        $em = self::getContainer()->get(EntityManagerInterface::class);
+        /** @var Problem $problem */
+        $problem = $em->getRepository(Problem::class)->findOneBy(['externalid' => 'fltcmp']);
+        $problem
+            ->setProblemstatementType('md')
+            ->getProblemStatementContent()
+            ->setContent("## Input\n\nThe set $$\\{1,2\\}$$ has \$a<b\$.\n\n![A dot](data:image/png;base64,iVBORw0KGgo=)\n\n<script>alert('statement')</script>\n");
+        $sample = $problem->getTestcases()->get(0);
+        $sample->setSample(true);
+        $em->flush();
+        return $sample;
+    }
+
+    /**
+     * Markdown statements are shown in a modal on the problems page, or as a page,
+     * with their math and the samples.
+     */
+    public function testMarkdownStatement(): void
+    {
+        $sample = $this->useMarkdownStatement();
+        $this->logIn();
+
+        $crawler = $this->client->request('GET', '/team/problems');
+        $link = $crawler->filter('.card-body')->eq(1)->selectLink('statement');
+        self::assertSame('typesetMath', $link->attr('data-ajax-modal-after'));
+
+        $this->client->xmlHttpRequest('GET', $link->attr('href'));
+        self::assertSelectorExists('.modal .problem-statement h2');
+
+        $crawler = $this->client->request('GET', $link->attr('href'));
+        self::assertResponseIsSuccessful();
+        $statement = $crawler->filter('.problem-statement');
+        self::assertSame('Input', $statement->filter('h2')->text());
+        // Markdown would turn \{ into { and the sanitizer would see a tag in a<b.
+        self::assertStringContainsString('The set $$\{1,2\}$$ has $a&lt;b$.', $statement->html());
+        self::assertStringNotContainsString('alert', $statement->html());
+        self::assertSame('data:image/png;base64,iVBORw0KGgo=', $statement->filter('img')->attr('src'));
+        self::assertSame($sample->getContent()->getInput(), $statement->filter('pre')->eq(0)->text(null, false));
+        self::assertSame($sample->getContent()->getOutput(), $statement->filter('pre')->eq(1)->text(null, false));
+    }
+
+    /**
+     * In lockdown teams can only view Markdown statements and download nothing,
+     * and the public pages show no statements.
+     */
+    public function testLockdown(): void
+    {
+        $this->useMarkdownStatement();
+        $this->logIn();
+        $downloads = [
+            '/team/problems/hello/statement',
+            '/team/fltcmp/samples.zip',
+            '/public/problems/fltcmp/statement',
+            '/public/fltcmp/samples.zip',
+            '/api/contests/demo/problems/hello/statement',
+            '/api/contests/demo/samples.zip',
+        ];
+        foreach ($downloads as $url) {
+            $this->client->request('GET', $url);
+            self::assertResponseIsSuccessful($url);
+        }
+
+        $this->withChangedConfiguration('team_lockdown', true, function () use ($downloads): void {
+            $crawler = $this->client->request('GET', '/team/problems');
+            self::assertSelectorExists('script[src*="team-lockdown.js"]');
+            self::assertSame(0, $crawler->selectLink('samples')->count());
+            // Only fltcmp has a Markdown statement.
+            self::assertSame(['/team/problems/fltcmp/statement'], $crawler->selectLink('statement')->extract(['href']));
+
+            $this->client->request('GET', '/team/problems/fltcmp/statement');
+            self::assertResponseIsSuccessful();
+            self::assertSelectorExists('script[src*="team-lockdown.js"]');
+
+            foreach ($downloads as $url) {
+                $this->client->request('GET', $url);
+                self::assertResponseStatusCodeSame(404, $url);
+            }
+        });
+    }
+
+    /**
      * Test that the problems page does not show sample data for interactive problems.
      */
     public function testInteractiveSamples(): void

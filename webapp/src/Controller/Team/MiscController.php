@@ -206,7 +206,7 @@ class MiscController extends BaseController
     {
         $user    = $this->authService->getUser();
         $contest = $this->dj->getCurrentContest($user->getTeam()->getTeamid());
-        if (!$contest || !$contest->getFreezeData()->started()) {
+        if (!$contest || !$contest->getFreezeData()->started() || $this->config->get('team_lockdown')) {
             throw new NotFoundHttpException('Contest text not found or not available');
         }
         return $contest->getContestProblemsetStreamedResponse();

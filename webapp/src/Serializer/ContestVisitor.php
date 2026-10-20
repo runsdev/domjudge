@@ -108,6 +108,7 @@ readonly class ContestVisitor implements EventSubscriberInterface
                 'pdf' => 'application/pdf',
                 'html' => 'text/html',
                 'txt' => 'text/plain',
+                'md' => 'text/markdown',
                 default => throw new BadRequestHttpException(sprintf('Contest c%d text has unknown type', $contest->getCid())),
             };
             $contest->setProblemsetForApi(new FileWithName(

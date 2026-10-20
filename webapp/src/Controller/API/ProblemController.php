@@ -424,6 +424,9 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
     #[OA\Parameter(ref: '#/components/parameters/id')]
     public function statementAction(Request $request, string $id): Response
     {
+        if ($this->config->get('team_lockdown') && !$this->isGranted('ROLE_API_READER')) {
+            throw new NotFoundHttpException('Problem statements are not available.');
+        }
         $queryBuilder = $this->getQueryBuilder($request)
             ->leftJoin('p.problemStatementContent', 'content')
             ->addSelect('content')
