@@ -1,0 +1,32 @@
+#!/bin/sh
+# Start Chromium or Google Chrome in kiosk mode on a team workstation.
+# Only the DOMjudge server can be reached, and the browser profile is kept,
+# so drafts in the team code editor survive browser restarts.
+#
+# Usage: dj_kiosk <DOMjudge team URL> [extra browser options...]
+# Environment: DJ_KIOSK_BROWSER (browser binary), DJ_KIOSK_PROFILE (profile dir).
+# See the "Kiosk mode" section in the DOMjudge manual for more lockdown options.
+
+set -eu
+
+url="${1:-}"
+case "$url" in
+	http://*|https://*) shift ;;
+	*)
+		echo "Usage: $0 <DOMjudge team URL, e.g. https://judge.example.org/team> [browser options...]" >&2
+		exit 1
+		;;
+esac
+
+host=$(echo "$url" | sed -E 's#^[a-zA-Z]+://([^/?#]*@)?(\[[^]]*\]|[^/:?#]+).*#\2#')
+browser="${DJ_KIOSK_BROWSER:-$(command -v chromium || command -v chromium-browser || command -v google-chrome || true)}"
+if [ -z "$browser" ]; then
+	echo "No Chromium or Google Chrome found, set DJ_KIOSK_BROWSER." >&2
+	exit 1
+fi
+
+exec "$browser" --kiosk --no-first-run --no-default-browser-check \
+	--user-data-dir="${DJ_KIOSK_PROFILE:-$HOME/.domjudge-kiosk}" \
+	--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE $host" \
+	--disable-features=Translate --overscroll-history-navigation=0 \
+	"$@" "$url"

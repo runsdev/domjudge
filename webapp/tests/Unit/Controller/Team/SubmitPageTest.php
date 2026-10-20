@@ -244,4 +244,14 @@ class SubmitPageTest extends BaseTestCase
         static::assertStringNotContainsString('frame-ancestors', $csp);
         static::assertStringNotContainsString('wasm-unsafe-eval', $csp);
     }
+
+    public function testProblemSubmitButtonOpensEditorWithoutUpload(): void
+    {
+        $this->withChangedConfiguration('submit_methods', ['paste'], function (): void {
+            $this->verifyPageResponse('GET', '/team/problems', 200);
+            $links = $this->getCurrentCrawler()->filter('.problem-list a[href*="/team/submit/"]');
+            static::assertGreaterThan(0, $links->count());
+            static::assertCount(0, $links->filter('[data-ajax-modal]'));
+        });
+    }
 }

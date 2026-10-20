@@ -347,6 +347,7 @@
                 - paste
             public: true
             description: Allowed submission methods in the web interface.
+            docdescription: "``paste`` is the in-browser code editor. Allow only ``paste`` for kiosk setups, see :ref:`kiosk-mode`."
             options:
                 - upload
                 - paste

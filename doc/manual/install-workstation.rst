@@ -12,6 +12,54 @@ convenient to teams if the URL of DOMjudge is set as the default homepage,
 and if using a self-signed HTTPS certificate, that the browser is made
 to trust this certificate.
 
+.. _kiosk-mode:
+
+Kiosk mode
+----------
+A team workstation can also run nothing but a web browser in kiosk mode:
+full screen, without address bar, tabs or other applications. Teams then
+write their code in the code editor of the team web interface instead of
+uploading files. Set ``submit_methods`` to only ``paste`` in the
+configuration settings to get the code editor without the file upload.
+
+The code editor highlights the syntax, completes keywords, common library
+functions and snippets (type ``main`` for a program template), and marks
+syntax errors while typing for C, C++, C#, Go, Java, Python, Ruby, Rust
+and shell scripts. The problem statement is shown next to the editor.
+The code of each problem is kept as a draft in the browser, so it survives
+reloads, logging out and restarting the browser.
+
+To start Chromium or Google Chrome in kiosk mode, use ``misc-tools/dj_kiosk``
+from the DOMjudge sources::
+
+  dj_kiosk https://judge.example.org/team
+
+This only allows connections to the DOMjudge server and keeps the browser
+profile with the drafts in ``~/.domjudge-kiosk``. Set ``DJ_KIOSK_PROFILE``
+to use another profile directory and ``DJ_KIOSK_BROWSER`` to choose the
+browser; extra arguments are passed on to the browser. In kiosk mode,
+:kbd:`Alt+Left` goes back, for example after opening an attachment.
+
+Let teams log in automatically based on their IP address (see
+:ref:`authentication`, ``auth_methods`` and ``ip_autologin``), so the
+workstation can start the browser directly after booting.
+
+For a stricter lockdown, also install a Chromium policy, on Linux in
+``/etc/chromium/policies/managed/`` (Chromium) or
+``/etc/opt/chrome/policies/managed/`` (Google Chrome), for example::
+
+  {
+    "URLBlocklist": ["*"],
+    "URLAllowlist": ["judge.example.org"],
+    "DeveloperToolsAvailability": 2,
+    "DownloadRestrictions": 3,
+    "AllowFileSelectionDialogs": false,
+    "PasswordManagerEnabled": false
+  }
+
+Firefox has a ``--kiosk`` option as well and can be restricted in a similar
+way with an enterprise ``policies.json``.
+
 .. _submit_client_requirements:
 
 Command line submit client
