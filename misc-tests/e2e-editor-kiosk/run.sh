@@ -5,7 +5,9 @@
 # Usage: run.sh <Docker network> [DOMjudge base URL on that network]
 # E.g. for the docker-compose.yml in the repository root:
 #   misc-tests/e2e-editor-kiosk/run.sh domjudge_default http://domjudge
-# Set EXPECT_PROD=1 to also check that DOMjudge runs with the production CSP.
+# Set EXPECT_PROD=1 to also check that DOMjudge runs with the production CSP, and
+# PISTON_URL to a Piston server on that network (e.g. http://piston:2000) to test
+# running code.
 
 set -eu
 
@@ -21,6 +23,7 @@ exec docker run --rm --ipc=host --network "$1" \
 	-e BASE_URL="${2:-http://domjudge}" \
 	-e ADMIN_AUTH="admin:$(cat "$repo/etc/initial_admin_password.secret")" \
 	-e EXPECT_PROD="${EXPECT_PROD:-}" \
+	-e PISTON_URL="${PISTON_URL:-}" \
 	mcr.microsoft.com/playwright:v1.60.0-noble sh -c '
 		mkdir /tmp/e2e && cd /tmp/e2e && cp /repo/misc-tests/e2e-editor-kiosk/editor-kiosk.e2e.cjs . &&
 		npm install --silent --no-save --no-package-lock playwright@1.60.0 &&

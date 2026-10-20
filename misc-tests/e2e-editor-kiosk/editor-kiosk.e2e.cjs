@@ -1,11 +1,11 @@
-// End-to-end test of the team code editor and kiosk mode against a running
-// DOMjudge with the example data (team demo/demo) and judgehosts. It changes
-// the configuration (only the code editor, ranking and submissions shown) and
-// submits solutions, so only run it against a test installation. See run.sh.
+// End-to-end test of the team code editor, lockdown and kiosk mode against a running
+// DOMjudge with the example data (team demo/demo) and judgehosts. It changes the
+// configuration (restored at the end), imports a problem with a Markdown statement
+// and submits solutions, so only run it against a test installation. See run.sh.
 'use strict';
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
-const { spawn } = require('node:child_process');
+const { execFileSync, spawn } = require('node:child_process');
 const fs = require('node:fs');
 
 const BASE = process.env.BASE_URL || 'http://domjudge';
@@ -16,6 +16,7 @@ const CONTEST = process.env.CONTEST || 'demo';
 const SHOTS = process.env.SHOTS;  // directory for screenshots, optional
 const KIOSK = process.env.KIOSK_SCRIPT || '/repo/misc-tools/dj_kiosk';
 const CHROME = process.env.CHROME || '/ms-playwright/chromium-1223/chrome-linux64/chrome';
+const PISTON = process.env.PISTON_URL;  // Piston server for the Run button, optional
 
 if (SHOTS) {
     fs.mkdirSync(SHOTS, { recursive: true });
@@ -32,6 +33,64 @@ async function api(path, init = {}) {
     });
     assert.ok(res.ok, `API ${path}: HTTP ${res.status}`);
     return res.status === 204 ? null : res.json();
+}
+
+// The config API sets the settings left out of a PUT to false, so send all of them.
+let originalConfig;
+async function setConfig(changes) {
+    const config = await api('/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...originalConfig, ...changes }),
+    });
+    for (const [name, value] of Object.entries(changes)) {
+        assert.deepEqual(config[name], value, name);
+    }
+}
+
+// A problem with a Markdown statement and one sample, zipped with Python (in the Playwright image).
+const MD_PROBLEM = {
+    'problem.yaml': 'name: Markdown sum\n',
+    '.timelimit': '2\n',
+    'problem_statement/problem.md': 'Print the sum of $a$ and $b$, where $1 \\le a, b \\le 10^9$.\n\n' +
+        '## Input\n\nOne line with $a$ and $b$.\n\n## Output\n\nOne line with $a+b$.\n',
+    'data/sample/1.in': '2 3\n',
+    'data/sample/1.ans': '5\n',
+    'data/secret/1.in': '1000000000 1000000000\n',
+    'data/secret/1.ans': '2000000000\n',
+};
+async function importMarkdownProblem() {
+    const zip = execFileSync('python3', ['-c', 'import json, sys, zipfile\n' +
+        'with zipfile.ZipFile(sys.stdout.buffer, "w") as z:\n' +
+        '    for name, content in json.load(sys.stdin).items(): z.writestr(name, content)'], { input: JSON.stringify(MD_PROBLEM) });
+    // Update the problem when an earlier run imported it.
+    for (const update of [true, false]) {
+        const form = new FormData();
+        form.append('zip', new Blob([zip]), 'mdsum.zip');
+        if (update) {
+            form.append('problem', 'mdsum');
+        }
+        const res = await fetch(`${BASE}/api/v4/contests/${CONTEST}/problems`, {
+            method: 'POST', body: form,
+            headers: { Authorization: 'Basic ' + Buffer.from(ADMIN).toString('base64') },
+        });
+        if (res.ok) {
+            return;
+        }
+        assert.ok(update && res.status === 400, `importing the Markdown problem: HTTP ${res.status} ${await res.text()}`);
+    }
+}
+
+// Click Run and return the status line and the output.
+async function run(page) {
+    await page.click('#paste-run-button');
+    await page.waitForFunction(() => !document.getElementById('paste-run-button').disabled, null, { timeout: 90000 });
+    return [await page.textContent('#paste-run-status'), await page.textContent('#paste-run-output')];
+}
+
+// In lockdown every page asks for full screen, unless the browser itself is full screen.
+async function enterFullscreen(page) {
+    await page.locator('dialog.fullscreen-required button').click();
+    await page.waitForFunction(() => document.fullscreenElement && !document.querySelector('dialog.fullscreen-required').open);
 }
 
 async function login(page) {
@@ -62,13 +121,29 @@ async function suggestions(page, text) {
     return labels.join(' | ');
 }
 
+// Kiosk setup: only the code editor, and a scoreboard to check its links.
+const EDITOR_CONFIG = { submit_methods: ['paste'], enable_ranking: true, show_teams_submissions: true, piston_url: PISTON || '', team_lockdown: false };
+
+// Wait until the team's submissions after `before` are judged; return them with verdicts and sources.
+async function judged(before, count) {
+    let mine = [];
+    for (let i = 0; i < 90; i++) {
+        mine = (await api(`/contests/${CONTEST}/submissions`)).filter(s => +s.id > before && s.team_id === 'exteam');
+        const judgements = await Promise.all(mine.map(s => api(`/contests/${CONTEST}/judgements?submission_id=${s.id}`)));
+        mine.forEach((s, k) => { s.verdict = judgements[k].find(j => j.judgement_type_id)?.judgement_type_id; });
+        if (mine.length === count && mine.every(s => s.verdict)) break;
+        await sleep(2000);
+    }
+    for (const s of mine) {
+        const files = await api(`/contests/${CONTEST}/submissions/${s.id}/source-code`);
+        s.files = files.map(f => f.filename);
+        s.source = Buffer.from(files[0].source, 'base64').toString();
+    }
+    console.log(mine.map(s => `    submission ${s.id}: ${s.language_id} ${s.files} -> ${s.verdict}`).join('\n'));
+    return mine;
+}
+
 async function editorFlow(browser) {
-    // Kiosk setup: only the code editor, and a scoreboard to check its links.
-    const config = await api('/config', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ submit_methods: ['paste'], enable_ranking: true, show_teams_submissions: true }),
-    });
-    assert.deepEqual([config.submit_methods, config.enable_ranking], [['paste'], true]);
     const context = await browser.newContext({ viewport: { width: 1600, height: 900 } });
     await context.addInitScript(() => {
         window.__pasteEditor = () => window.monaco && monaco.editor.getEditors().find(e => e.getDomNode().closest('.paste-editor-container'));
@@ -179,6 +254,51 @@ async function editorFlow(browser) {
     await waitMarkers(page, /^$/, 'C using C++ keywords as names must not be marked');
     log('no false positives for loop macros (C++) or C++ keywords used as names (C)');
 
+    // Run the code with custom input on Piston.
+    if (PISTON) {
+        await select(page, 'language', 'cpp');
+        await setCode(page, '#include <iostream>\nint main() {\n    long long a, b;\n    std::cin >> a >> b;\n' +
+            '    std::cout << a + b << std::endl;\n    std::cerr << "debug" << std::endl;\n}\n');
+        await page.fill('#paste-run-input', '2 3\n');
+        let [status, output] = await run(page);
+        assert.match(status, /^Finished in [\d.]+ s \(c\+\+ [\d.]+, the judge may differ\)$/);
+        assert.equal(output, '5\ndebug\n');
+        await screenshot(page, '04-run');
+        log(`Run C++: "${status}", output ${JSON.stringify(output)}`);
+        await setCode(page, 'int main() { return x; }\n');
+        [status, output] = await run(page);
+        assert.match(status, /^Compilation failed/);
+        assert.match(output, /'x' was not declared/);
+        await select(page, 'language', 'python3');
+        await setCode(page, 'print(input()[::-1])\n');
+        await page.fill('#paste-run-input', 'abc\n');
+        assert.deepEqual((await run(page))[1], 'cba\n');
+        await setCode(page, 'while True:\n    pass\n');
+        [status] = await run(page);
+        assert.match(status, /Time limit exceeded/);
+        await select(page, 'language', 'java');
+        await setCode(page, 'import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n' +
+            '        System.out.println(new Scanner(System.in).nextInt() * 2);\n    }\n}\n');
+        await page.fill('#paste-run-input', '21\n');
+        assert.deepEqual((await run(page))[1], '42\n');
+        log('Run: compile errors, Python, a time limit and Java work too');
+    } else {
+        assert.equal(await page.locator('#paste-run-button').count(), 0);
+        log('no Run button without piston_url (set PISTON_URL to test running code)');
+    }
+
+    // Without lockdown the system clipboard works; this also puts "SYSTEM" on it for lockdownFlow().
+    await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<textarea id="clipboard-probe"></textarea>'));
+    await page.fill('#clipboard-probe', 'SYSTEM');
+    await page.click('#clipboard-probe');
+    await page.keyboard.press('Control+A');
+    await page.keyboard.press('Control+C');
+    await setCode(page, '');
+    await page.evaluate(() => window.__pasteEditor().focus());
+    await page.keyboard.press('Control+V');
+    await page.waitForFunction(() => window.__pasteEditor().getValue() === 'SYSTEM');
+    log('without lockdown, text copied outside the editor can be pasted into it');
+
     // Drafts per problem survive reloads and problem switches.
     const helloCpp = '#include <iostream>\nint main() {\n    std::cout << "Hello world!" << std::endl;\n    return 0;\n}\n';
     await select(page, 'language', 'cpp');
@@ -209,7 +329,8 @@ async function editorFlow(browser) {
     const helloJava = 'import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello world!");\n    }\n}\n';
     const helloPy = 'print("Hello world!")\n';
     const dialogs = [];
-    page.on('dialog', d => { dialogs.push(d.message()); d.accept(); });
+    // The dialog can be gone by the time it is accepted.
+    page.on('dialog', d => { dialogs.push(d.message()); d.accept().catch(() => {}); });
     for (const [lang, src, file] of [['cpp', helloCpp, 'A.cpp'], ['java', helloJava, 'Main.java'], ['python3', helloPy, 'A.py']]) {
         await page.goto(BASE + '/team/submit');
         await editorReady(page);
@@ -221,23 +342,10 @@ async function editorFlow(browser) {
         assert.match(await page.textContent('.alert-success'), /Submission done/);
         log(`submitted ${lang} as ${file}; confirm dialog: ${JSON.stringify(dialogs.at(-1))}`);
     }
-    await screenshot(page, '04-after-submit');
+    await screenshot(page, '05-after-submit');
 
     // The judgehosts compile and run them; check verdicts and stored sources.
-    let mine = [];
-    for (let i = 0; i < 90; i++) {
-        mine = (await api(`/contests/${CONTEST}/submissions`)).filter(s => +s.id > before && s.team_id === 'exteam');
-        const judgements = await Promise.all(mine.map(s => api(`/contests/${CONTEST}/judgements?submission_id=${s.id}`)));
-        mine.forEach((s, k) => { s.verdict = judgements[k].find(j => j.judgement_type_id)?.judgement_type_id; });
-        if (mine.length === 3 && mine.every(s => s.verdict)) break;
-        await sleep(2000);
-    }
-    for (const s of mine) {
-        const files = await api(`/contests/${CONTEST}/submissions/${s.id}/source-code`);
-        s.files = files.map(f => f.filename);
-        s.source = Buffer.from(files[0].source, 'base64').toString();
-    }
-    console.log(mine.map(s => `    submission ${s.id}: ${s.language_id} ${s.files} -> ${s.verdict}`).join('\n'));
+    const mine = await judged(before, 3);
     assert.deepEqual(mine.map(s => [s.language_id, s.files.join(), s.verdict]),
         [['cpp', 'A.cpp', 'AC'], ['java', 'Main.java', 'AC'], ['python3', 'A.py', 'AC']]);
     assert.deepEqual(mine.map(s => s.source), [helloCpp, helloJava, helloPy], 'sources stored byte-identical');
@@ -293,6 +401,153 @@ async function editorFlow(browser) {
     await context.close();
 }
 
+async function lockdownFlow(browser) {
+    await importMarkdownProblem();
+    await setConfig({ ...EDITOR_CONFIG, team_lockdown: true });
+    const context = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+    await context.addInitScript(() => {
+        window.__pasteEditor = () => window.monaco && monaco.editor.getEditors().find(e => e.getDomNode().closest('.paste-editor-container'));
+    });
+    const popups = [], downloads = [], problems = [];
+    const page = await context.newPage();
+    page.on('popup', p => popups.push(p.url()));
+    page.on('download', d => downloads.push(d.suggestedFilename()));
+    page.on('console', m => { if (m.type() === 'error') problems.push('console: ' + m.text()); });
+    page.on('pageerror', e => problems.push('pageerror: ' + e.message));
+    page.on('response', r => { if (r.status() >= 400) problems.push(`HTTP ${r.status()} ${r.request().method()} ${r.url()} (on ${page.url()})`); });
+    await login(page);
+
+    // Team pages need full screen; the dialog makes the rest of the page inert.
+    const dialogOpen = () => page.evaluate(() => document.querySelector('dialog.fullscreen-required').open);
+    await page.waitForSelector('dialog.fullscreen-required[open]');
+    await screenshot(page, '06-fullscreen-required');
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    assert.ok(await dialogOpen(), 'Escape does not get rid of the dialog');
+    await assert.rejects(page.locator('a[href="/team/problems"]').first().click({ timeout: 1500 }), 'the page behind the dialog is inert');
+    await enterFullscreen(page);
+    await page.evaluate(() => document.exitFullscreen());
+    await page.waitForFunction(() => document.querySelector('dialog.fullscreen-required').open);
+    log('lockdown: the team pages need full screen, also after leaving it; Escape does not close the dialog');
+
+    // In browser full screen (as with F11 or in kiosk mode) no dialog shows, also on other pages.
+    const cdp = await context.newCDPSession(page);
+    const { windowId } = await cdp.send('Browser.getWindowForTarget');
+    await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'fullscreen' } });
+    for (const path of ['/team/problems', '/team/scoreboard']) {
+        await page.goto(BASE + path);
+        await page.waitForSelector('dialog.fullscreen-required', { state: 'attached' });
+        assert.equal(await dialogOpen(), false, path);
+    }
+    await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } });
+    await page.waitForFunction(() => document.querySelector('dialog.fullscreen-required').open);
+    log('in browser full screen no dialog shows, also after opening other pages; leaving it brings the dialog back');
+
+    // Only the Markdown statement, in a modal with typeset math; nothing to download.
+    await page.goto(BASE + '/team/problems');
+    await enterFullscreen(page);
+    assert.equal(await page.locator('a[href*="samples.zip"], a[href$="/problemset"]').count(), 0, 'no download links');
+    assert.deepEqual(await page.locator('a:has-text("statement")').evaluateAll(as => as.map(a => a.getAttribute('href'))),
+        ['/team/problems/mdsum/statement']);
+    await page.click('a[href="/team/problems/mdsum/statement"]');
+    const modal = page.locator('.modal.show');
+    await modal.locator('mjx-container').first().waitFor();
+    assert.match(await modal.locator('.modal-dialog').getAttribute('class'), /modal-xl/);
+    assert.equal(await modal.locator('pre').first().textContent(), '2 3\n');
+    await sleep(500);  // the modal fades in
+    await screenshot(page, '07-markdown-statement');
+    await modal.locator('.btn-close').click();
+    for (const url of ['/team/problems/hello/statement', '/team/mdsum/samples.zip', '/team/problemset',
+        '/public/problems/mdsum/statement', '/public/mdsum/samples.zip',
+        `/api/v4/contests/${CONTEST}/problems/hello/statement`, `/api/v4/contests/${CONTEST}/samples.zip`]) {
+        assert.equal((await context.request.get(BASE + url)).status(), 404, url);
+    }
+    assert.deepEqual(await page.evaluate(() => ['s', 'p'].map(key => {
+        const e = new KeyboardEvent('keydown', { key, ctrlKey: true, cancelable: true });
+        window.dispatchEvent(e);
+        return e.defaultPrevented;
+    })), [true, true], 'Ctrl+S and Ctrl+P are blocked');
+    await page.emulateMedia({ media: 'print' });
+    assert.equal(await page.evaluate(() => getComputedStyle(document.body).display), 'none');
+    await page.emulateMedia({ media: 'screen' });
+    log('Markdown statement in a modal with typeset math and samples; statements, samples and the problemset cannot be downloaded, saved or printed');
+
+    // The editor shows the Markdown statement too.
+    await page.goto(BASE + '/team/submit');
+    await enterFullscreen(page);
+    await editorReady(page);
+    await select(page, 'problem', 'mdsum');
+    await select(page, 'language', 'cpp');
+    await page.waitForFunction(() => document.querySelector('#paste-statement iframe').getAttribute('src') === '/team/problems/mdsum/statement');
+    const frame = await (await page.locator('#paste-statement iframe').elementHandle()).contentFrame();
+    await frame.locator('mjx-container').first().waitFor();
+    await screenshot(page, '07-editor-markdown-statement');
+    log('the editor shows the Markdown statement with typeset math');
+
+    // Copy and paste only work within DOMjudge: "SYSTEM" (copied in editorFlow()) is not pasted.
+    await setCode(page, 'abc\nxyz\n');
+    await page.evaluate(() => { const e = window.__pasteEditor(); e.setPosition({ lineNumber: 3, column: 1 }); e.focus(); });
+    await page.keyboard.press('Control+V');
+    await sleep(300);
+    assert.equal(await code(page), 'abc\nxyz\n', 'the system clipboard is not pasted');
+    await page.evaluate(() => window.__pasteEditor().setSelection(new monaco.Selection(1, 1, 1, 4)));
+    await page.keyboard.press('Control+C');
+    await page.evaluate(() => window.__pasteEditor().setPosition({ lineNumber: 3, column: 1 }));
+    await page.keyboard.press('Control+V');
+    await page.waitForFunction(() => window.__pasteEditor().getValue() === 'abc\nxyz\nabc');
+    // Copying without a selection copies the line, which is pasted as a line.
+    await page.evaluate(() => window.__pasteEditor().setPosition({ lineNumber: 2, column: 2 }));
+    await page.keyboard.press('Control+C');
+    await page.keyboard.press('Control+V');
+    await page.waitForFunction(() => window.__pasteEditor().getValue() === 'abc\nxyz\nxyz\nabc');
+    const other = await context.newPage();
+    await other.goto(BASE + '/public');
+    await other.evaluate(() => document.body.insertAdjacentHTML('afterbegin', '<textarea id="clipboard-probe"></textarea>'));
+    await other.click('#clipboard-probe');
+    await other.keyboard.press('Control+V');
+    const leaked = await other.inputValue('#clipboard-probe');
+    assert.doesNotMatch(leaked, /abc|xyz/, 'copies in DOMjudge do not reach the system clipboard');
+    await other.close();
+    log(`copy and paste within the editor work (also whole lines); the system clipboard is neither pasted nor written (it holds ${JSON.stringify(leaked)})`);
+
+    // Copy the sample input from the statement into the Run input; cut works in text fields.
+    await frame.click('.problem-statement pre');
+    await frame.evaluate(() => getSelection().selectAllChildren(document.querySelector('.problem-statement pre')));
+    await page.keyboard.press('Control+C');
+    if (PISTON) {
+        await page.click('#paste-run-input');
+        await page.keyboard.press('Control+A');
+        await page.keyboard.press('Control+V');
+        // Browsers leave out the last newline of a selected <pre>.
+        assert.equal(await page.inputValue('#paste-run-input'), '2 3');
+        await page.fill('#paste-run-input', '2 3\ncut this');
+        await page.evaluate(() => { const t = document.getElementById('paste-run-input'); t.focus(); t.setSelectionRange(4, 12); });
+        await page.keyboard.press('Control+X');
+        assert.equal(await page.inputValue('#paste-run-input'), '2 3\n');
+        log('sample input copied from the statement into the Run input; cutting in it works');
+    }
+    const sum = '#include <iostream>\nint main() {\n    long long a, b;\n    std::cin >> a >> b;\n    std::cout << a + b << std::endl;\n}\n';
+    await setCode(page, sum);
+    if (PISTON) {
+        assert.equal((await run(page))[1], '5\n');
+        log('Run with the pasted sample input prints the sample output');
+    }
+
+    // The imported problem is judged like any other.
+    const before = Math.max(0, ...(await api(`/contests/${CONTEST}/submissions`)).map(s => +s.id));
+    page.on('dialog', d => d.accept().catch(() => {}));
+    await Promise.all([page.waitForURL(u => u.pathname === '/team'), page.click('.paste-toolbar-submit button[type=submit]')]);
+    const [submission] = await judged(before, 1);
+    assert.deepEqual([submission.problem_id, submission.verdict, submission.source], ['mdsum', 'AC', sum]);
+    log('the Markdown problem was judged CORRECT');
+
+    assert.deepEqual(popups, [], 'no popups or new windows');
+    assert.deepEqual(downloads, [], 'no downloads');
+    assert.deepEqual(problems.filter(p => !/favicon/.test(p)), [], 'no console or page errors');
+    log('no new windows, downloads, console errors or page errors in lockdown');
+    await context.close();
+}
+
 function launchKiosk(profile, port) {
     const child = spawn(KIOSK, [BASE + '/team', '--headless=new', '--no-sandbox', `--remote-debugging-port=${port}`, '--window-size=1600,900'], {
         env: { ...process.env, DJ_KIOSK_BROWSER: CHROME, DJ_KIOSK_PROFILE: profile },
@@ -335,7 +590,7 @@ async function kioskFlow() {
     await page.selectOption('#submit_problem_paste_language', 'python3');
     await page.evaluate(v => monaco.editor.getEditors()[0].setValue(v), draft);
     await sleep(800);
-    await screenshot(page, '05-kiosk');
+    await screenshot(page, '08-kiosk');
     // Close the browser like a user would, so it writes its storage to the profile.
     const exited = new Promise(r => child.once('exit', r));
     await (await browser.newBrowserCDPSession()).send('Browser.close').catch(() => {});
@@ -360,13 +615,18 @@ async function kioskFlow() {
 }
 
 (async () => {
+    originalConfig = await api('/config');
     const browser = await chromium.launch({ channel: 'chromium' });
     try {
+        await setConfig(EDITOR_CONFIG);
         await editorFlow(browser);
+        await lockdownFlow(browser);
+        await setConfig(EDITOR_CONFIG);
+        await kioskFlow();
     } finally {
         await browser.close();
+        await setConfig({});
     }
-    await kioskFlow();
     console.log('ALL E2E CHECKS PASSED');
 })().catch(e => {
     console.error('E2E FAILED:', e);
