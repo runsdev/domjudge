@@ -16,7 +16,6 @@ const CONTEST = process.env.CONTEST || 'demo';
 const SHOTS = process.env.SHOTS;  // directory for screenshots, optional
 const KIOSK = process.env.KIOSK_SCRIPT || '/repo/misc-tools/dj_kiosk';
 const CHROME = process.env.CHROME || '/ms-playwright/chromium-1223/chrome-linux64/chrome';
-const PISTON = process.env.PISTON_URL;  // Piston server for the Run button, optional
 
 if (SHOTS) {
     fs.mkdirSync(SHOTS, { recursive: true });
@@ -49,7 +48,7 @@ async function setConfig(changes) {
 
 // A problem with a Markdown statement and one sample, zipped with Python (in the Playwright image).
 const MD_PROBLEM = {
-    'problem.yaml': 'name: Markdown sum\n',
+    'problem.yaml': 'name: Markdown sum\nlimits:\n    memory: 64\n',
     '.timelimit': '2\n',
     'problem_statement/problem.md': 'Print the sum of $a$ and $b$, where $1 \\le a, b \\le 10^9$.\n\n' +
         '## Input\n\nOne line with $a$ and $b$.\n\n## Output\n\nOne line with $a+b$.\n',
@@ -83,7 +82,7 @@ async function importMarkdownProblem() {
 // Click Run and return the status line and the output.
 async function run(page) {
     await page.click('#paste-run-button');
-    await page.waitForFunction(() => !document.getElementById('paste-run-button').disabled, null, { timeout: 90000 });
+    await page.waitForFunction(() => !document.getElementById('paste-run-button').disabled, null, { timeout: 130000 });
     return [await page.textContent('#paste-run-status'), await page.textContent('#paste-run-output')];
 }
 
@@ -122,7 +121,7 @@ async function suggestions(page, text) {
 }
 
 // Kiosk setup: only the code editor, and a scoreboard to check its links.
-const EDITOR_CONFIG = { submit_methods: ['paste'], enable_ranking: true, show_teams_submissions: true, piston_url: PISTON || '', team_lockdown: false };
+const EDITOR_CONFIG = { submit_methods: ['paste'], enable_ranking: true, show_teams_submissions: true, allow_test_runs: true, team_lockdown: false };
 
 // Wait until the team's submissions after `before` are judged; return them with verdicts and sources.
 async function judged(before, count) {
@@ -254,38 +253,39 @@ async function editorFlow(browser) {
     await waitMarkers(page, /^$/, 'C using C++ keywords as names must not be marked');
     log('no false positives for loop macros (C++) or C++ keywords used as names (C)');
 
-    // Run the code with custom input on Piston.
-    if (PISTON) {
-        await select(page, 'language', 'cpp');
-        await setCode(page, '#include <iostream>\nint main() {\n    long long a, b;\n    std::cin >> a >> b;\n' +
-            '    std::cout << a + b << std::endl;\n    std::cerr << "debug" << std::endl;\n}\n');
-        await page.fill('#paste-run-input', '2 3\n');
-        let [status, output] = await run(page);
-        assert.match(status, /^Finished in [\d.]+ s \(c\+\+ [\d.]+, the judge may differ\)$/);
-        assert.equal(output, '5\ndebug\n');
-        await screenshot(page, '04-run');
-        log(`Run C++: "${status}", output ${JSON.stringify(output)}`);
-        await setCode(page, 'int main() { return x; }\n');
-        [status, output] = await run(page);
-        assert.match(status, /^Compilation failed/);
-        assert.match(output, /'x' was not declared/);
-        await select(page, 'language', 'python3');
-        await setCode(page, 'print(input()[::-1])\n');
-        await page.fill('#paste-run-input', 'abc\n');
-        assert.deepEqual((await run(page))[1], 'cba\n');
-        await setCode(page, 'while True:\n    pass\n');
-        [status] = await run(page);
-        assert.match(status, /Time limit exceeded/);
-        await select(page, 'language', 'java');
-        await setCode(page, 'import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n' +
-            '        System.out.println(new Scanner(System.in).nextInt() * 2);\n    }\n}\n');
-        await page.fill('#paste-run-input', '21\n');
-        assert.deepEqual((await run(page))[1], '42\n');
-        log('Run: compile errors, Python, a time limit and Java work too');
-    } else {
-        assert.equal(await page.locator('#paste-run-button').count(), 0);
-        log('no Run button without piston_url (set PISTON_URL to test running code)');
-    }
+    // Run the code on a judgehost, with the input below the editor and the limits of the problem.
+    const submissionCount = (await api(`/contests/${CONTEST}/submissions`)).length;
+    await select(page, 'language', 'cpp');
+    await setCode(page, '#include <iostream>\nint main() {\n    long long a, b;\n    std::cin >> a >> b;\n' +
+        '    std::cout << a + b << std::endl;\n    std::cerr << "debug" << std::endl;\n}\n');
+    await page.fill('#paste-run-input', '2 3\n');
+    let [status, output] = await run(page);
+    assert.match(status, /^Finished in [\d.]+ s$/);
+    assert.equal(output, '5\ndebug\n');
+    await screenshot(page, '04-run');
+    log(`Run C++ on a judgehost: "${status}", output ${JSON.stringify(output)}`);
+    await setCode(page, 'int main() { return x; }\n');
+    [status, output] = await run(page);
+    assert.equal(status, 'Compilation failed');
+    assert.match(output, /'x' was not declared/);
+    await select(page, 'language', 'python3');
+    await setCode(page, 'print(input()[::-1])\n');
+    await page.fill('#paste-run-input', 'abc\n');
+    assert.deepEqual((await run(page))[1], 'cba\n');
+    await select(page, 'language', 'java');
+    await setCode(page, 'import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n' +
+        '        System.out.println(new Scanner(System.in).nextInt() * 2);\n    }\n}\n');
+    await page.fill('#paste-run-input', '21\n');
+    assert.deepEqual((await run(page))[1], '42\n');
+    // hangman has a time limit of 1 s.
+    await select(page, 'problem', 'hangman');
+    await select(page, 'language', 'cpp');
+    await setCode(page, 'int main() {\n    volatile long long i = 0;\n    for (;;) i++;\n}\n');
+    [status] = await run(page);
+    assert.equal(status, 'Time limit exceeded (the limit is 1 s)');
+    await select(page, 'problem', 'hello');
+    assert.equal((await api(`/contests/${CONTEST}/submissions`)).length, submissionCount, 'runs do not add submissions');
+    log('Run: compile errors, the time limit of the problem, Python and Java work too, without adding submissions');
 
     // Without lockdown the system clipboard works; this also puts "SYSTEM" on it for lockdownFlow().
     await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<textarea id="clipboard-probe"></textarea>'));
@@ -514,24 +514,26 @@ async function lockdownFlow(browser) {
     await frame.click('.problem-statement pre');
     await frame.evaluate(() => getSelection().selectAllChildren(document.querySelector('.problem-statement pre')));
     await page.keyboard.press('Control+C');
-    if (PISTON) {
-        await page.click('#paste-run-input');
-        await page.keyboard.press('Control+A');
-        await page.keyboard.press('Control+V');
-        // Browsers leave out the last newline of a selected <pre>.
-        assert.equal(await page.inputValue('#paste-run-input'), '2 3');
-        await page.fill('#paste-run-input', '2 3\ncut this');
-        await page.evaluate(() => { const t = document.getElementById('paste-run-input'); t.focus(); t.setSelectionRange(4, 12); });
-        await page.keyboard.press('Control+X');
-        assert.equal(await page.inputValue('#paste-run-input'), '2 3\n');
-        log('sample input copied from the statement into the Run input; cutting in it works');
-    }
+    await page.click('#paste-run-input');
+    await page.keyboard.press('Control+A');
+    await page.keyboard.press('Control+V');
+    // Browsers leave out the last newline of a selected <pre>.
+    assert.equal(await page.inputValue('#paste-run-input'), '2 3');
+    await page.fill('#paste-run-input', '2 3\ncut this');
+    await page.evaluate(() => { const t = document.getElementById('paste-run-input'); t.focus(); t.setSelectionRange(4, 12); });
+    await page.keyboard.press('Control+X');
+    assert.equal(await page.inputValue('#paste-run-input'), '2 3\n');
+    log('sample input copied from the statement into the Run input; cutting in it works');
     const sum = '#include <iostream>\nint main() {\n    long long a, b;\n    std::cin >> a >> b;\n    std::cout << a + b << std::endl;\n}\n';
     await setCode(page, sum);
-    if (PISTON) {
-        assert.equal((await run(page))[1], '5\n');
-        log('Run with the pasted sample input prints the sample output');
-    }
+    assert.equal((await run(page))[1], '5\n');
+    log('Run with the pasted sample input prints the sample output');
+    // The problem has a memory limit of 64 MB.
+    await setCode(page, '#include <vector>\nint main() {\n    std::vector<char> v(256 << 20, 1);\n    return v[5];\n}\n');
+    const [memoryStatus] = await run(page);
+    assert.equal(memoryStatus, 'Memory limit exceeded (the limit is 64 MB)');
+    await setCode(page, sum);
+    log(`Run with too much memory: "${memoryStatus}"`);
 
     // The imported problem is judged like any other.
     const before = Math.max(0, ...(await api(`/contests/${CONTEST}/submissions`)).map(s => +s.id));
