@@ -3,7 +3,8 @@
 # workstations to standard output. Safe Exam Browser then shows DOMjudge in full
 # screen on a desktop of its own, allows no other websites than DOMjudge and the
 # C++ reference at cppreference.com, blocks the clipboard and keeps its browser
-# profile, so drafts in the team code editor survive restarts.
+# profile, so drafts in the team code editor survive restarts. Its toolbar has
+# back, forward and reload buttons, and a home button back to DOMjudge.
 #
 # Usage: dj_seb_config <DOMjudge team URL> > domjudge.seb
 # Environment: DJ_SEB_QUIT_PASSWORD (password to quit Safe Exam Browser; without
@@ -44,6 +45,8 @@ cat <<EOF
 	<key>enableBrowserWindowToolbar</key>
 	<true/>
 	<key>allowBrowsingBackForward</key>
+	<true/>
+	<key>restartExamUseStartURL</key>
 	<true/>
 	<key>newBrowserWindowByLinkPolicy</key>
 	<integer>1</integer>

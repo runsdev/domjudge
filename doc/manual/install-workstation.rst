@@ -85,12 +85,14 @@ screen on a desktop of its own, without other applications or a clipboard.
 ``misc-tools/dj_seb_config`` writes a configuration for it that allows no other
 websites than DOMjudge and the C++ reference at cppreference.com::
 
-  DJ_SEB_QUIT_PASSWORD=secret dj_seb_config https://judge.example.org/team > domjudge.seb
+  export DJ_SEB_QUIT_PASSWORD=...
+  dj_seb_config https://judge.example.org/team > domjudge.seb
 
 Opening ``domjudge.seb`` on a workstation starts Safe Exam Browser with it.
 Teams need the password to quit it; without ``DJ_SEB_QUIT_PASSWORD`` they can
-quit it themselves. The configuration keeps the browser profile, so drafts in
-the code editor survive restarts. Open it in the configuration tool of Safe
+quit it themselves. Its toolbar has back, forward and reload buttons, and a
+home button back to DOMjudge. The configuration keeps the browser profile, so
+drafts in the code editor survive restarts. Open it in the configuration tool of Safe
 Exam Browser to change other settings or to encrypt it. As there is no address
 bar, list the C++ reference in ``etc/docs.yaml`` so teams find it under *Docs*,
 for example::
