@@ -17,6 +17,9 @@
             {% if not static %}
                 {% if jury %}
                     {% set link = path('jury_problem', {'probId': problem.externalid}) %}
+                {% elseif team_lockdown and not public %}
+                    {# In lockdown teams see statements next to the code editor only. #}
+                    {% set link = path('team_submit', {problem: problem.probid}) %}
                 {% elseif problem.problem.problemstatementType is not empty %}
                     {% if public %}
                         {% set link = path('public_problem_statement', {probId: problem.externalid}) %}

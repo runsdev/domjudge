@@ -275,6 +275,12 @@ class SubmitPageTest extends BaseTestCase
 
                 $this->verifyPageResponse('GET', '/team/problems', 200);
                 static::assertCount(0, $this->getCurrentCrawler()->filter('[data-ajax-modal-after="initSubmitModal"]'));
+
+                // The problems on the scoreboard open the code editor, not their statement.
+                $this->verifyPageResponse('GET', '/team/scoreboard', 200);
+                $links = $this->getCurrentCrawler()->filter('.scoreheader a');
+                static::assertGreaterThan(0, $links->count());
+                static::assertCount($links->count(), $links->filter('[href^="/team/submit/"]'));
             });
         });
     }

@@ -102,6 +102,8 @@ async function openLocked(page, path) {
 }
 
 async function login(page) {
+    // Teams start in the contest that was activated first; there may be others than CONTEST.
+    await page.context().addCookies([{ name: 'domjudge_cid', value: CONTEST, url: BASE }]);
     await page.goto(BASE + '/login');
     await page.fill('#username', TEAM_USER);
     await page.fill('#inputPassword', TEAM_PASS);
@@ -465,12 +467,14 @@ async function lockdownFlow(browser) {
     const { windowId } = await cdp.send('Browser.getWindowForTarget');
     await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'fullscreen' } });
     for (const path of ['/team/problems', '/team/scoreboard']) {
-        await openLocked(page, path);
+        app = await openLocked(page, path);
         assert.equal(await dialogOpen(), false, path);
     }
+    // The problems on the scoreboard open the code editor, not a statement page without buttons.
+    assert.match(await app.getAttribute('.scoreheader th[data-problem-id="mdsum"] a', 'href'), /^\/team\/submit\/\d+$/);
     await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } });
     await page.waitForFunction(() => document.querySelector('dialog.fullscreen-required').open);
-    log('in browser full screen no dialog shows, also after opening other pages; leaving it brings the dialog back');
+    log('in browser full screen no dialog shows, also after opening other pages; leaving it brings the dialog back; the problems on the scoreboard open the code editor');
 
     // No statements or downloads on the problem list, and Solve opens the editor.
     app = await openLocked(page, '/team/problems');
