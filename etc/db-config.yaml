@@ -355,11 +355,17 @@
             type: bool
             default_value: false
             public: true
-            description: Require full screen on the team pages, let teams submit with the code editor only, block copy and paste, selecting text and the context menu of the browser, and do not let teams download statements or samples.
+            description: Let teams submit with the code editor only, block copy and paste, selecting text and the context menu of the browser, and do not let teams download statements or samples.
             docdescription: |
                 Teams then submit with the code editor only, whatever ``submit_methods`` says, and see Markdown
                 problem statements next to it only; the problemset and statements in other formats are not
                 available to them. The public pages show no statements or samples either. See :ref:`kiosk-mode`.
+        -   name: team_lockdown_fullscreen
+            type: bool
+            default_value: false
+            public: true
+            description: With team_lockdown, also require full screen on the team pages.
+            docdescription: See :ref:`kiosk-mode`.
         -   name: allow_test_runs
             type: bool
             default_value: true

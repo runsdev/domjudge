@@ -81,6 +81,7 @@ class TwigGlobalsExtension extends AbstractExtension implements GlobalsInterface
             'enable_ranking'                => $this->config->get('enable_ranking'),
             'submit_methods'                => $this->dj->getSubmitMethods(),
             'team_lockdown'                 => $this->config->get('team_lockdown'),
+            'team_lockdown_fullscreen'      => $this->config->get('team_lockdown_fullscreen'),
             'editor_themes'                 => [
                 'vs'                        => ['name' => 'Visual Studio (light)'],
                 'vs-dark'                   => ['name' => 'Visual Studio (dark)'],

@@ -190,16 +190,23 @@ class MiscControllerTest extends BaseTestCase
     }
 
     /**
-     * With team_lockdown the team pages open in a frame of the lockdown page.
+     * With team_lockdown_fullscreen the team pages ask for full screen and open in a frame of the lockdown page.
      */
     public function testLockdownPage(): void
     {
         $this->verifyPageResponse('GET', '/team/lockdown', 302, '/team');
         $this->withChangedConfiguration('team_lockdown', true, function (): void {
-            $this->verifyPageResponse('GET', '/team/lockdown', 200);
-            self::assertSelectorExists('iframe#lockdown-frame');
-            self::assertSelectorExists('script[src*="js/team-lockdown.js"]');
-            self::assertSelectorNotExists('nav');
+            $this->verifyPageResponse('GET', '/team/lockdown', 302, '/team');
+            $this->verifyPageResponse('GET', '/team', 200);
+            self::assertSelectorExists('script[src*="js/team-lockdown.js"]:not([data-fullscreen])');
+            $this->withChangedConfiguration('team_lockdown_fullscreen', true, function (): void {
+                $this->verifyPageResponse('GET', '/team', 200);
+                self::assertSelectorExists('script[src*="js/team-lockdown.js"][data-fullscreen]');
+                $this->verifyPageResponse('GET', '/team/lockdown', 200);
+                self::assertSelectorExists('iframe#lockdown-frame');
+                self::assertSelectorExists('script[src*="js/team-lockdown.js"]');
+                self::assertSelectorNotExists('nav');
+            });
         });
     }
 

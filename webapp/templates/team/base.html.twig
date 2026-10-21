@@ -10,7 +10,7 @@
     {% block team_scripts %}{% endblock %}
     {% include 'team/partials/submit_scripts.html.twig' %}
     {% if team_lockdown %}
-        <script src="{{ asset('js/team-lockdown.js') }}"></script>
+        <script src="{{ asset('js/team-lockdown.js') }}"{% if team_lockdown_fullscreen %} data-fullscreen{% endif %}></script>
     {% endif %}
 
     <script>

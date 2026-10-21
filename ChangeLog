@@ -54,10 +54,12 @@ Version 10.0.0DEV
    of a problem, without submitting it.
  - Configuration changes
    - `submit_methods` now also enables the code editor (`paste`) by default.
-   - New `team_lockdown`: require full screen on the team pages (which open in
-     a frame, so full screen stays on), let teams submit with the code editor
-     only, block copy and paste, selecting text and the context menu of the
-     browser, and do not offer statements or samples for download.
+   - New `team_lockdown`: let teams submit with the code editor only, block
+     copy and paste, selecting text and the context menu of the browser, and
+     do not offer statements or samples for download.
+   - New `team_lockdown_fullscreen`: with `team_lockdown`, also require full
+     screen on the team pages, which then open in a frame so full screen stays
+     on.
    - New `allow_test_runs`, on by default, for running code from the team code
      editor.
    - `show_balloons_postfreeze` configuration variable superseded by

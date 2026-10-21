@@ -34,17 +34,18 @@ document.head.append(Object.assign(document.createElement('style'), {
 }));
 window.addEventListener('contextmenu', e => e.preventDefault(), true);
 
-// Require full screen. Browsers end the full screen that a page started when another page
-// opens, so the team pages open in a frame of a page that stays open, team/lockdown.html.twig.
-// Full screen with F11 or in kiosk mode stays on anyway.
+// With team_lockdown_fullscreen (data-fullscreen on this script), require full screen. Browsers end
+// the full screen that a page started when another page opens, so the team pages then open in a
+// frame of a page that stays open, team/lockdown.html.twig. Full screen with F11 or in kiosk mode
+// stays on anyway.
 if (window.frameElement?.id === 'lockdown-frame') {
     // Show the address and title of this page on the page with the frame, also after a reload.
     top.history.replaceState(null, '', top.location.pathname + '#' + location.pathname + location.search);
     top.document.title = document.title;
-} else if (window.top === window && !document.getElementById('lockdown-frame')) {
+} else if (window.top === window && document.currentScript.hasAttribute('data-fullscreen')) {
     // This script is in js/.
     location.replace(new URL('../team/lockdown#' + location.pathname + location.search, document.currentScript.src));
-} else if (window.top === window) {
+} else if (window.top === window && document.getElementById('lockdown-frame')) {
     // Open the page in the address, if it is one of DOMjudge.
     const url = new URL(location.hash.slice(1) || '../team', location.href);
     document.getElementById('lockdown-frame').src = url.origin === location.origin ? url : '../team';

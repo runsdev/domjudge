@@ -426,7 +426,7 @@ async function editorFlow(browser) {
 
 async function lockdownFlow(browser) {
     // Lockdown allows only the code editor, also when uploading is on.
-    await setConfig({ ...EDITOR_CONFIG, submit_methods: ['upload', 'paste'], team_lockdown: true });
+    await setConfig({ ...EDITOR_CONFIG, submit_methods: ['upload', 'paste'], team_lockdown: true, team_lockdown_fullscreen: true });
     const context = await browser.newContext({ viewport: { width: 1600, height: 900 } });
     await context.addInitScript(() => {
         window.__pasteEditor = () => window.monaco && monaco.editor.getEditors().find(e => e.getDomNode().closest('.paste-editor-container'));
@@ -594,6 +594,14 @@ async function lockdownFlow(browser) {
     const [submission] = await judged(before, 1);
     assert.deepEqual([submission.problem_id, submission.verdict, submission.source], ['mdsum', 'AC', sum]);
     log('the Markdown problem was judged CORRECT');
+
+    // Without team_lockdown_fullscreen, team pages open as they are, without asking for full screen.
+    await setConfig({ ...EDITOR_CONFIG, team_lockdown: true, team_lockdown_fullscreen: false });
+    await page.goto(BASE + '/team/problems');
+    await sleep(500);
+    assert.equal(new URL(page.url()).pathname, '/team/problems');
+    assert.equal(await page.locator('dialog.fullscreen-required, #lockdown-frame').count(), 0);
+    log('without team_lockdown_fullscreen the team pages do not ask for full screen');
 
     assert.deepEqual(popups, [], 'no popups or new windows');
     assert.deepEqual(downloads, [], 'no downloads');

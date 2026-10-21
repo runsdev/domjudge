@@ -202,12 +202,12 @@ class MiscController extends BaseController
     }
 
     /**
-     * With team_lockdown the team pages open in a frame of this page, see js/team-lockdown.js.
+     * With team_lockdown_fullscreen the team pages open in a frame of this page, see js/team-lockdown.js.
      */
     #[Route(path: '/lockdown', name: 'team_lockdown')]
     public function lockdownAction(): Response
     {
-        if (!$this->config->get('team_lockdown')) {
+        if (!$this->config->get('team_lockdown') || !$this->config->get('team_lockdown_fullscreen')) {
             return $this->redirectToRoute('team_index');
         }
         return $this->render('team/lockdown.html.twig');

@@ -23,7 +23,7 @@ readonly class AddContentSecurityPolicyListener
             $cspExtra .= " 'wasm-unsafe-eval'";
         }
         // Pages can show in an iframe of DOMjudge itself: the team code editor shows the problem
-        // statement in one, and with team_lockdown the team pages and the login page show in one,
+        // statement in one, and with team_lockdown_fullscreen the team pages and the login page show in one,
         // see team/lockdown.html.twig. Browsers ignore the webserver's X-Frame-Options: DENY
         // when frame-ancestors is present.
         $csp = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' $cspExtra; img-src 'self' data:; worker-src 'self' blob:; font-src 'self' data:; frame-ancestors 'self';";
