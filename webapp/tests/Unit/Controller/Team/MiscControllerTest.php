@@ -190,6 +190,20 @@ class MiscControllerTest extends BaseTestCase
     }
 
     /**
+     * With team_lockdown the team pages open in a frame of the lockdown page.
+     */
+    public function testLockdownPage(): void
+    {
+        $this->verifyPageResponse('GET', '/team/lockdown', 302, '/team');
+        $this->withChangedConfiguration('team_lockdown', true, function (): void {
+            $this->verifyPageResponse('GET', '/team/lockdown', 200);
+            self::assertSelectorExists('iframe#lockdown-frame');
+            self::assertSelectorExists('script[src*="js/team-lockdown.js"]');
+            self::assertSelectorNotExists('nav');
+        });
+    }
+
+    /**
      * Test that no docs.yaml does not show docs link.
      */
     public function testDocsNoDocs(): void

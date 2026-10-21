@@ -41,9 +41,12 @@ browser; extra arguments are passed on to the browser. In kiosk mode,
 :kbd:`Alt+Left` goes back, for example after opening an attachment.
 
 With the ``team_lockdown`` setting, the team pages ask for full screen until
-the browser is in full screen (as with ``dj_kiosk`` or :kbd:`F11`), and block
-copy, cut, paste and dragging text, also within the code editor. Teams can
-then only submit with the code editor, and not download, save or print
+the browser is in full screen (as with ``dj_kiosk`` or :kbd:`F11`). The team
+pages open in a frame of a page that stays open, so full screen started from
+the page stays on when teams open another team page. The team pages block
+copy, cut, paste and dragging text, also within the code editor, and the
+context menu of the browser; only text in the code editor and input fields
+can be selected. Teams can then only submit with the code editor, and not download, save or print
 statements, samples or the problemset: they see Markdown statements next to
 the code editor only, see :doc:`problem-format`, and the public pages show no
 statements or samples.
@@ -65,8 +68,12 @@ For a stricter lockdown, also install a Chromium policy, on Linux in
     "DeveloperToolsAvailability": 2,
     "DownloadRestrictions": 3,
     "AllowFileSelectionDialogs": false,
-    "PasswordManagerEnabled": false
+    "PasswordManagerEnabled": false,
+    "ExtensionInstallBlocklist": ["*"],
+    "GeminiSettings": 1
   }
+
+The last two turn off all browser extensions and Gemini in Google Chrome.
 
 Firefox has a ``--kiosk`` option as well and can be restricted in a similar
 way with an enterprise ``policies.json``.

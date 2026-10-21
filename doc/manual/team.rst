@@ -175,8 +175,8 @@ you type below the editor, without submitting it, and with the time and memory
 limits of the selected problem. It shows the output, or for example that your
 code exceeded the time limit.
 
-In some contests the team pages only work in full screen, and copy and paste
-are blocked.
+In some contests the team pages only work in full screen, copy and paste are
+blocked, and only text in the code editor and input fields can be selected.
 
 After you hit the submit button and confirm the submission, you will
 be redirected back to your submission list page. On this page, a message

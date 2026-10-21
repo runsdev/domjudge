@@ -1119,6 +1119,16 @@ blockquote {
     background: var(--bs-body-bg, #fff);
 }
 
+/* The team pages in lockdown, see team/lockdown.html.twig */
+#lockdown-frame {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+}
+
 /* Markdown problem statements, see partials/problem_statement.html.twig */
 .problem-statement h1 {
     font-size: 1.5rem;

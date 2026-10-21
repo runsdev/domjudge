@@ -246,9 +246,10 @@ class SubmitPageTest extends BaseTestCase
         static::assertStringContainsString("frame-ancestors 'self'",
             $this->client->getResponse()->headers->get('Content-Security-Policy'));
 
+        // All pages can show in a frame of DOMjudge, for team_lockdown.
         $this->verifyPageResponse('GET', '/team', 200);
         $csp = $this->client->getResponse()->headers->get('Content-Security-Policy');
-        static::assertStringNotContainsString('frame-ancestors', $csp);
+        static::assertStringContainsString("frame-ancestors 'self'", $csp);
         static::assertStringNotContainsString('wasm-unsafe-eval', $csp);
     }
 

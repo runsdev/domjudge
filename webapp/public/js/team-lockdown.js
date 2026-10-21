@@ -27,19 +27,33 @@ window.addEventListener('keydown', e => {
         e.preventDefault();
     }
 }, true);
+// No selecting text outside the code editor and input fields, and no context menu of the
+// browser, which can search for text or ask AI about it. The code editor keeps its own menu.
 document.head.append(Object.assign(document.createElement('style'), {
-    textContent: '@media print { body { display: none !important; } }',
+    textContent: 'body { -webkit-user-select: none; user-select: none; } @media print { body { display: none !important; } }',
 }));
+window.addEventListener('contextmenu', e => e.preventDefault(), true);
 
-// Require full screen. Full screen started with the button below ends when
-// another page opens; full screen started with F11 or in kiosk mode does not.
-if (window.top === window) {
+// Require full screen. Browsers end the full screen that a page started when another page
+// opens, so the team pages open in a frame of a page that stays open, team/lockdown.html.twig.
+// Full screen with F11 or in kiosk mode stays on anyway.
+if (window.frameElement?.id === 'lockdown-frame') {
+    // Show the address and title of this page on the page with the frame, also after a reload.
+    top.history.replaceState(null, '', top.location.pathname + '#' + location.pathname + location.search);
+    top.document.title = document.title;
+} else if (window.top === window && !document.getElementById('lockdown-frame')) {
+    // This script is in js/.
+    location.replace(new URL('../team/lockdown#' + location.pathname + location.search, document.currentScript.src));
+} else if (window.top === window) {
+    // Open the page in the address, if it is one of DOMjudge.
+    const url = new URL(location.hash.slice(1) || '../team', location.href);
+    document.getElementById('lockdown-frame').src = url.origin === location.origin ? url : '../team';
+
     const dialog = document.createElement('dialog');
     dialog.className = 'fullscreen-required bg-body text-body border rounded p-4';
     dialog.innerHTML = `
         <p>Use DOMjudge in full screen.</p>
-        <button type="button" class="btn btn-primary">Enter full screen</button>
-        <p class="small text-muted mt-3 mb-0">Full screen with F11 stays on when you open another page.</p>`;
+        <button type="button" class="btn btn-primary">Enter full screen</button>`;
     const fullscreen = matchMedia('(display-mode: fullscreen)');
     const update = () => {
         if (document.fullscreenElement || fullscreen.matches) {

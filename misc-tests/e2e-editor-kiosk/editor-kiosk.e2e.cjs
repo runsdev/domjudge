@@ -92,6 +92,15 @@ async function enterFullscreen(page) {
     await page.waitForFunction(() => document.fullscreenElement && !document.querySelector('dialog.fullscreen-required').open);
 }
 
+// In lockdown the team pages open in a frame of a page that stays open, so that full screen stays
+// on. Open a team page and return that frame; the helpers below that take a page also take a frame.
+async function openLocked(page, path) {
+    await page.goto(BASE + path, { waitUntil: 'commit' });
+    const app = await (await page.waitForSelector('#lockdown-frame')).contentFrame();
+    await app.waitForURL(u => u.pathname === path);
+    return app;
+}
+
 async function login(page) {
     await page.goto(BASE + '/login');
     await page.fill('#username', TEAM_USER);
@@ -429,26 +438,34 @@ async function lockdownFlow(browser) {
     page.on('response', r => { if (r.status() >= 400) problems.push(`HTTP ${r.status()} ${r.request().method()} ${r.url()} (on ${page.url()})`); });
     await login(page);
 
-    // Team pages need full screen; the dialog makes the rest of the page inert.
+    // Team pages open in a frame of a page that needs full screen; its dialog makes the rest inert.
     const dialogOpen = () => page.evaluate(() => document.querySelector('dialog.fullscreen-required').open);
     await page.waitForSelector('dialog.fullscreen-required[open]');
+    let app = await (await page.waitForSelector('#lockdown-frame')).contentFrame();
+    await app.waitForURL(u => u.pathname === '/team');
     await screenshot(page, '06-fullscreen-required');
     await page.keyboard.press('Escape');
     await sleep(300);
     assert.ok(await dialogOpen(), 'Escape does not get rid of the dialog');
-    await assert.rejects(page.locator('a[href="/team/problems"]').first().click({ timeout: 1500 }), 'the page behind the dialog is inert');
+    await assert.rejects(app.locator('a[href="/team/problems"]').first().click({ timeout: 1500 }), 'the page behind the dialog is inert');
     await enterFullscreen(page);
+    // Full screen stays on when another team page opens, and the address and title follow it.
+    await app.locator('a[href="/team/problems"]').first().click();
+    await app.waitForURL(u => u.pathname === '/team/problems');
+    assert.ok(await page.evaluate(() => document.fullscreenElement && !document.querySelector('dialog.fullscreen-required').open),
+        'still in full screen after opening another page');
+    assert.equal(await page.evaluate(() => location.pathname + location.hash), '/team/lockdown#/team/problems');
+    assert.equal(await page.title(), await app.title());
     await page.evaluate(() => document.exitFullscreen());
     await page.waitForFunction(() => document.querySelector('dialog.fullscreen-required').open);
-    log('lockdown: the team pages need full screen, also after leaving it; Escape does not close the dialog');
+    log('lockdown: the team pages need full screen, which stays on when another team page opens; leaving it brings back the dialog, which Escape does not close');
 
     // In browser full screen (as with F11 or in kiosk mode) no dialog shows, also on other pages.
     const cdp = await context.newCDPSession(page);
     const { windowId } = await cdp.send('Browser.getWindowForTarget');
     await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'fullscreen' } });
     for (const path of ['/team/problems', '/team/scoreboard']) {
-        await page.goto(BASE + path);
-        await page.waitForSelector('dialog.fullscreen-required', { state: 'attached' });
+        await openLocked(page, path);
         assert.equal(await dialogOpen(), false, path);
     }
     await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } });
@@ -456,18 +473,18 @@ async function lockdownFlow(browser) {
     log('in browser full screen no dialog shows, also after opening other pages; leaving it brings the dialog back');
 
     // No statements or downloads on the problem list, and Solve opens the editor.
-    await page.goto(BASE + '/team/problems');
+    app = await openLocked(page, '/team/problems');
     await enterFullscreen(page);
-    assert.equal(await page.locator('a:has-text("statement"), a[href*="samples.zip"], a[href$="/problemset"]').count(), 0,
+    assert.equal(await app.locator('a:has-text("statement"), a[href*="samples.zip"], a[href$="/problemset"]').count(), 0,
         'no statement or download links');
-    assert.equal(await page.locator('.problem-list a[href*="/team/submit/"][data-ajax-modal]').count(), 0);
+    assert.equal(await app.locator('.problem-list a[href*="/team/submit/"][data-ajax-modal]').count(), 0);
     await screenshot(page, '07-locked-problem-list');
     for (const url of ['/team/problems/hello/statement', '/team/mdsum/samples.zip', '/team/problemset',
         '/public/problems/mdsum/statement', '/public/mdsum/samples.zip',
         `/api/v4/contests/${CONTEST}/problems/hello/statement`, `/api/v4/contests/${CONTEST}/samples.zip`]) {
         assert.equal((await context.request.get(BASE + url)).status(), 404, url);
     }
-    assert.deepEqual(await page.evaluate(() => ['s', 'p'].map(key => {
+    assert.deepEqual(await app.evaluate(() => ['s', 'p'].map(key => {
         const e = new KeyboardEvent('keydown', { key, ctrlKey: true, cancelable: true });
         window.dispatchEvent(e);
         return e.defaultPrevented;
@@ -477,39 +494,71 @@ async function lockdownFlow(browser) {
     await page.emulateMedia({ media: 'screen' });
     log('no statements on the problem list; statements, samples and the problemset cannot be downloaded, saved or printed');
 
-    // The editor shows the Markdown statement, and there is nothing to upload.
-    await page.goto(BASE + '/team/submit');
-    await enterFullscreen(page);
-    await editorReady(page);
-    assert.equal(await page.locator('form[name="submit_problem"], #upload-tab-page').count(), 0, 'no file upload');
-    await select(page, 'problem', 'mdsum');
-    await select(page, 'language', 'cpp');
-    await page.waitForFunction(() => document.querySelector('#paste-statement iframe').getAttribute('src') === '/team/problems/mdsum/statement');
-    const frame = await (await page.locator('#paste-statement iframe').elementHandle()).contentFrame();
-    await frame.locator('mjx-container').first().waitFor();
+    // Solve opens the code editor, still in full screen. It shows the Markdown statement, and there is nothing to upload.
+    await app.locator('.card', { hasText: 'Markdown sum' }).locator('a:has-text("Solve")').click();
+    await app.waitForURL(u => u.pathname.startsWith('/team/submit/'));
+    await editorReady(app);
+    assert.ok(await page.evaluate(() => document.fullscreenElement && !document.querySelector('dialog.fullscreen-required').open),
+        'still in full screen in the editor');
+    assert.equal(await app.locator('form[name="submit_problem"], #upload-tab-page').count(), 0, 'no file upload');
+    await select(app, 'problem', 'mdsum');
+    await select(app, 'language', 'cpp');
+    await app.waitForFunction(() => document.querySelector('#paste-statement iframe').getAttribute('src') === '/team/problems/mdsum/statement');
+    const statement = await (await app.locator('#paste-statement iframe').elementHandle()).contentFrame();
+    await statement.locator('mjx-container').first().waitFor();
     await screenshot(page, '07-editor-markdown-statement');
-    log('the editor shows the Markdown statement with typeset math');
+    log('Solve opens the code editor, still in full screen, with the Markdown statement with typeset math');
+
+    // Only text in the code editor and input fields can be selected, and the context menu of the
+    // browser, which can search for text or ask AI about it, does not open.
+    await statement.click('.problem-statement p');
+    await page.keyboard.press('Control+A');
+    assert.equal(await statement.evaluate(() => getSelection().toString()), '', 'the statement cannot be selected');
+    assert.deepEqual(await Promise.all([page, app, statement].map(f => f.evaluate(() => {
+        const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+        document.body.dispatchEvent(e);
+        return e.defaultPrevented;
+    }))), [true, true, true], 'no context menu');
+    await setCode(app, 'abc def\nghi\n');
+    await app.click('.paste-editor-container .view-lines');
+    await page.keyboard.press('Control+A');
+    await page.keyboard.press('Delete');
+    assert.equal(await code(app), '', 'select all and delete in the editor');
+    await setCode(app, 'abc def\nghi\n');
+    // Drag over "abc". The frame fills the window, so its coordinates are those of the page.
+    const drag = await app.evaluate(() => {
+        const e = window.__pasteEditor(), box = e.getDomNode().getBoundingClientRect();
+        const a = e.getScrolledVisiblePosition({ lineNumber: 1, column: 1 }), b = e.getScrolledVisiblePosition({ lineNumber: 1, column: 4 });
+        return { x1: box.left + a.left + 1, x2: box.left + b.left, y: box.top + a.top + a.height / 2 };
+    });
+    await page.mouse.move(drag.x1, drag.y);
+    await page.mouse.down();
+    await page.mouse.move(drag.x2, drag.y, { steps: 8 });
+    await page.mouse.up();
+    await page.keyboard.press('Delete');
+    assert.equal(await code(app), ' def\nghi\n', 'select by dragging and delete in the editor');
+    log('no selecting the statement and no browser context menu; in the code editor Ctrl+A or dragging selects text to delete');
 
     // No copy, cut or paste: neither "SYSTEM" (copied in editorFlow()) nor text copied in the editor is pasted.
-    await setCode(page, 'abc\nxyz\n');
-    await page.evaluate(() => { const e = window.__pasteEditor(); e.setPosition({ lineNumber: 3, column: 1 }); e.focus(); });
+    await setCode(app, 'abc\nxyz\n');
+    await app.evaluate(() => { const e = window.__pasteEditor(); e.setPosition({ lineNumber: 3, column: 1 }); e.focus(); });
     await page.keyboard.press('Control+V');
-    await page.evaluate(() => window.__pasteEditor().setSelection(new monaco.Selection(1, 1, 1, 4)));
+    await app.evaluate(() => window.__pasteEditor().setSelection(new monaco.Selection(1, 1, 1, 4)));
     await page.keyboard.press('Control+C');
     await page.keyboard.press('Control+X');
-    await page.evaluate(() => window.__pasteEditor().setPosition({ lineNumber: 3, column: 1 }));
+    await app.evaluate(() => window.__pasteEditor().setPosition({ lineNumber: 3, column: 1 }));
     await page.keyboard.press('Control+V');
     await sleep(300);
-    assert.equal(await code(page), 'abc\nxyz\n', 'nothing is cut or pasted in the editor');
-    assert.equal(await page.evaluate(() => window.__pasteEditor().getOption(monaco.editor.EditorOption.dragAndDrop)), false,
+    assert.equal(await code(app), 'abc\nxyz\n', 'nothing is cut or pasted in the editor');
+    assert.equal(await app.evaluate(() => window.__pasteEditor().getOption(monaco.editor.EditorOption.dragAndDrop)), false,
         'no moving text in the editor by dragging it');
     // Text copied in DOMjudge, also from the statement, is pasted nowhere.
-    await frame.click('.problem-statement pre');
-    await frame.evaluate(() => getSelection().selectAllChildren(document.querySelector('.problem-statement pre')));
+    await statement.click('.problem-statement pre');
+    await statement.evaluate(() => getSelection().selectAllChildren(document.querySelector('.problem-statement pre')));
     await page.keyboard.press('Control+C');
-    await page.click('#paste-run-input');
+    await app.click('#paste-run-input');
     await page.keyboard.press('Control+V');
-    assert.equal(await page.inputValue('#paste-run-input'), '', 'nothing is pasted in the Run input');
+    assert.equal(await app.inputValue('#paste-run-input'), '', 'nothing is pasted in the Run input');
     const other = await context.newPage();
     await other.goto(BASE + '/public');
     await other.evaluate(() => document.body.insertAdjacentHTML('afterbegin', '<textarea id="clipboard-probe"></textarea>'));
@@ -521,22 +570,23 @@ async function lockdownFlow(browser) {
     log(`copy, cut and paste do nothing in the editor and the Run input; the system clipboard is neither pasted nor written (it holds ${JSON.stringify(leaked)})`);
 
     // Teams type the sample input themselves.
-    await page.fill('#paste-run-input', '2 3\n');
+    await app.fill('#paste-run-input', '2 3\n');
     const sum = '#include <iostream>\nint main() {\n    long long a, b;\n    std::cin >> a >> b;\n    std::cout << a + b << std::endl;\n}\n';
-    await setCode(page, sum);
-    assert.equal((await run(page))[1], '5\n');
+    await setCode(app, sum);
+    assert.equal((await run(app))[1], '5\n');
     log('Run with the sample input prints the sample output');
     // The problem has a memory limit of 64 MB.
-    await setCode(page, '#include <vector>\nint main() {\n    std::vector<char> v(256 << 20, 1);\n    return v[5];\n}\n');
-    const [memoryStatus] = await run(page);
+    await setCode(app, '#include <vector>\nint main() {\n    std::vector<char> v(256 << 20, 1);\n    return v[5];\n}\n');
+    const [memoryStatus] = await run(app);
     assert.equal(memoryStatus, 'Memory limit exceeded (the limit is 64 MB)');
-    await setCode(page, sum);
+    await setCode(app, sum);
     log(`Run with too much memory: "${memoryStatus}"`);
 
     // The imported problem is judged like any other.
     const before = Math.max(0, ...(await api(`/contests/${CONTEST}/submissions`)).map(s => +s.id));
     page.on('dialog', d => d.accept().catch(() => {}));
-    await Promise.all([page.waitForURL(u => u.pathname === '/team'), page.click('.paste-toolbar-submit button[type=submit]')]);
+    await Promise.all([app.waitForURL(u => u.pathname === '/team'), app.click('.paste-toolbar-submit button[type=submit]')]);
+    assert.ok(await page.evaluate(() => !!document.fullscreenElement), 'still in full screen after submitting');
     const [submission] = await judged(before, 1);
     assert.deepEqual([submission.problem_id, submission.verdict, submission.source], ['mdsum', 'AC', sum]);
     log('the Markdown problem was judged CORRECT');

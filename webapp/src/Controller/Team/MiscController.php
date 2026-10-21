@@ -201,6 +201,18 @@ class MiscController extends BaseController
         return $this->render('team/docs.html.twig');
     }
 
+    /**
+     * With team_lockdown the team pages open in a frame of this page, see js/team-lockdown.js.
+     */
+    #[Route(path: '/lockdown', name: 'team_lockdown')]
+    public function lockdownAction(): Response
+    {
+        if (!$this->config->get('team_lockdown')) {
+            return $this->redirectToRoute('team_index');
+        }
+        return $this->render('team/lockdown.html.twig');
+    }
+
     #[Route(path: '/problemset', name: 'team_contest_problemset')]
     public function contestProblemsetAction(): StreamedResponse
     {
