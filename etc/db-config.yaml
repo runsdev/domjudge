@@ -360,6 +360,12 @@
                 Teams then only see Markdown problem statements, shown in the browser; the problemset and statements
                 in other formats are not available to them. The public pages show no statements or samples either.
                 See :ref:`kiosk-mode`.
+        -   name: allow_test_runs
+            type: bool
+            default_value: true
+            public: true
+            description: Allow teams to run their code on a judgehost with input of their own from the code editor, without submitting it.
+            docdescription: See :ref:`run-code` for more information.
         -   name: enable_ranking
             type: bool
             default_value: true
@@ -404,12 +410,6 @@
             public: true
             description: If set, enable teams and jury to send source code to this command. See admin manual for allowed arguments.
             docdescription: See :ref:`printing` for more information.
-        -   name: piston_url
-            type: string
-            default_value: ""
-            public: false
-            description: URL of a [Piston](https://github.com/engineer-man/piston) server, e.g. `http://piston:2000`. If set, teams can run their code with their own input in the code editor.
-            docdescription: See :ref:`run-code` for more information.
         -   name: ccs_api_version
             type: enum
             default_value: 2026-01

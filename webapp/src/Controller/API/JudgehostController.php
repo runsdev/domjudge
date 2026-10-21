@@ -21,6 +21,7 @@ use App\Entity\Rejudging;
 use App\Entity\Submission;
 use App\Entity\SubmissionFile;
 use App\Entity\TestcaseContent;
+use App\Entity\TestRun;
 use App\Entity\Version;
 use App\Service\BalloonService;
 use App\Service\ConfigurationService;
@@ -50,6 +51,7 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\ExpressionLanguage\Expression;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Attribute\MapQueryParameter;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -189,6 +191,20 @@ class JudgehostController extends AbstractFOSRestController
         foreach ($judgings as $judging) {
             $this->giveBackJudging($judging->getJudgingid(), $judgehost);
         }
+
+        // The same for test runs, which another judgehost can then pick up.
+        $this->em->getConnection()->executeStatement(
+            'UPDATE judgetask jt
+                INNER JOIN test_run tr ON tr.judgetaskid = jt.judgetaskid
+                SET jt.judgehostid = NULL, jt.starttime = NULL
+              WHERE jt.type = :type
+                AND jt.judgehostid = :judgehostid
+                AND tr.compile_success IS NULL',
+            [
+                'type' => JudgeTaskType::TEST_RUN,
+                'judgehostid' => $judgehost->getJudgehostid(),
+            ]
+        );
 
         return array_map(fn(Judging $judging) => [
             'jobid' => $judging->getJudgingid(),
@@ -687,6 +703,55 @@ class JudgehostController extends AbstractFOSRestController
         $this->em->flush();
 
         return (int)$hasFinalResult;
+    }
+
+    /**
+     * Add the result of a test run.
+     */
+    #[IsGranted('ROLE_JUDGEHOST')]
+    #[Rest\Post(path: '/add-test-run/{hostname}/{judgeTaskId<\d+>}')]
+    #[OA\Response(response: 204, description: 'When the result of the test run has been added')]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\MediaType(
+            mediaType: 'application/x-www-form-urlencoded',
+            schema: new OA\Schema(
+                required: ['compile_success'],
+                properties: [
+                    new OA\Property(property: 'compile_success', description: 'Whether the code compiled', type: 'boolean'),
+                    new OA\Property(property: 'output_compile', description: 'The (base64-encoded) output of compiling', type: 'string'),
+                    new OA\Property(property: 'runresult', description: 'The result of the run, if the code compiled', type: 'string'),
+                    new OA\Property(property: 'runtime', description: 'The runtime of the run', type: 'number', format: 'float'),
+                    new OA\Property(property: 'output_run', description: 'The (base64-encoded) output of the run', type: 'string'),
+                    new OA\Property(property: 'output_error', description: 'The (base64-encoded) error output of the run', type: 'string'),
+                    new OA\Property(property: 'metadata', description: 'The (base64-encoded) metadata of the run', type: 'string'),
+                ]
+            )
+        )
+    )]
+    public function addTestRunAction(
+        Request $request,
+        #[OA\PathParameter(description: 'The hostname of the judgehost that ran the code')]
+        string $hostname,
+        #[OA\PathParameter(description: 'The ID of the judgetask of the test run', schema: new OA\Schema(type: 'integer'))]
+        int $judgeTaskId
+    ): Response {
+        $testRun = $this->em->getRepository(TestRun::class)->findOneBy(['judgeTask' => $judgeTaskId]);
+        if (!$testRun || $testRun->getJudgeTask()->getJudgehost()?->getHostname() !== $hostname) {
+            throw new NotFoundHttpException(sprintf('Test run of judgetask with ID \'%s\' not found', $judgeTaskId));
+        }
+        $decode = fn(string $field): ?string => $request->request->has($field)
+            ? base64_decode($request->request->get($field)) : null;
+        $testRun
+            ->setCompileSuccess((bool)$request->request->get('compile_success'))
+            ->setOutputCompile($decode('output_compile'))
+            ->setRunresult($request->request->get('runresult'))
+            ->setRuntime(is_numeric($request->request->get('runtime')) ? (float)$request->request->get('runtime') : null)
+            ->setOutputRun($decode('output_run'))
+            ->setOutputError($decode('output_error'))
+            ->setMetadata($decode('metadata'));
+        $this->em->flush();
+        return new Response('', Response::HTTP_NO_CONTENT);
     }
 
     /**
@@ -1439,6 +1504,7 @@ class JudgehostController extends AbstractFOSRestController
         return match ($type) {
             'source' => throw new BadRequestHttpException('Source files require contest ID. Use /get_files/source/{contestId}/{id}'),
             'testcase' => $this->getTestcaseFiles($id),
+            'testrun' => $this->getTestRunFiles($id),
             'compare', 'compile', 'debug', 'run' => $this->getExecutableFiles($id),
             default => throw new BadRequestHttpException('Unknown type requested.'),
         };
@@ -1802,6 +1868,23 @@ class JudgehostController extends AbstractFOSRestController
     }
 
     /**
+     * The code of the test run of the given judgetask, followed by its input.
+     *
+     * @return JudgehostFile[]
+     */
+    private function getTestRunFiles(string $judgeTaskId): array
+    {
+        $testRun = $this->em->getRepository(TestRun::class)->findOneBy(['judgeTask' => $judgeTaskId]);
+        if (!$testRun) {
+            throw new NotFoundHttpException(sprintf('Test run of judgetask with ID \'%s\' not found', $judgeTaskId));
+        }
+        return [
+            new JudgehostFile(filename: $testRun->getFilename(), content: base64_encode($testRun->getSource())),
+            new JudgehostFile(filename: 'input', content: base64_encode($testRun->getInput())),
+        ];
+    }
+
+    /**
      * @return JudgehostFile[]
      */
     private function getExecutableFiles(string $id): array
@@ -1989,6 +2072,25 @@ class JudgehostController extends AbstractFOSRestController
         $judgetasks = $this->getJudgetasks($lastJobId, $max_batchsize, $judgehost);
         if ($judgetasks !== null) {
             return $judgetasks;
+        }
+
+        // Teams wait for the result of a test run, so do those before starting a new judging.
+        /** @var JudgeTask[] $judgetasks */
+        $judgetasks = $this->em
+            ->createQueryBuilder()
+            ->from(JudgeTask::class, 'jt')
+            ->select('jt')
+            ->andWhere('jt.judgehost IS NULL')
+            ->andWhere('jt.valid = 1')
+            ->andWhere('jt.type = :type')
+            ->setParameter('type', JudgeTaskType::TEST_RUN)
+            ->addOrderBy('jt.priority')
+            ->addOrderBy('jt.judgetaskid')
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getResult();
+        if (!empty($judgetasks)) {
+            return $this->serializeJudgeTasks($judgetasks, $judgehost);
         }
 
         // This is case 2.a) from above: start something new.

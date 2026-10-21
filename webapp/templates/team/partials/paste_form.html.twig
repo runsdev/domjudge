@@ -36,8 +36,8 @@
         </small>
     </div>
     <div class="paste-toolbar-submit align-self-end ms-auto">
-        {% if run_available %}
-            <button type="button" class="btn btn-primary me-2" id="paste-run-button" data-url="{{ path('team_run') }}" title="Run the code with the input below">
+        {% if allow_test_runs %}
+            <button type="button" class="btn btn-primary me-2" id="paste-run-button" data-url="{{ path('team_run') }}" title="Run the code on the judge with the input below, without submitting it">
                 <i class="fas fa-play"></i> Run
             </button>
         {% endif %}
@@ -54,7 +54,7 @@
         <div class="paste-editor-container flex-fill">
             {{ '' | codeEditor('paste_page', null, true, paste_form.code_content.vars.id) }}
         </div>
-        {% if run_available %}
+        {% if allow_test_runs %}
             <div class="paste-run d-flex border-top">
                 <div class="d-flex flex-column">
                     <label for="paste-run-input" class="small text-muted px-2 pt-1">Input</label>

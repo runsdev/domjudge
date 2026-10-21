@@ -708,6 +708,146 @@ class JudgeDaemon
     }
 
     /**
+     * Compile the code of a team and run it on their input, see the test_run judge task type.
+     *
+     * @param JudgeTask[] $row
+     * @param-out null $lastWorkdir
+     */
+    private function handleTestRunTask(array $row, ?string &$lastWorkdir, string $workdirpath): void
+    {
+        // A test run gets a chroot of its own, so stop the one of the last judging.
+        if ($lastWorkdir !== null) {
+            $this->cleanupJudging($lastWorkdir);
+            $lastWorkdir = null;
+        }
+
+        foreach ($row as $judgeTask) {
+            $workdir = $workdirpath . '/testrun/' . (int)$judgeTask['judgetaskid'];
+            logmsg(LOG_INFO, "  Working directory: $workdir");
+            if (!$this->runCommandSafe(['mkdir', '-p', "$workdir/compile"])) {
+                error("Could not create '$workdir/compile'");
+            }
+            chmod($workdir, 0755);
+            if (!chdir($workdir)) {
+                error("Could not chdir to '$workdir'");
+            }
+
+            logmsg(LOG_INFO, "  🔒 Executing chroot script: '" . self::CHROOT_SCRIPT . " start'");
+            if (!$this->runCommandSafe([LIBJUDGEDIR . '/' . self::CHROOT_SCRIPT, 'start'], $retval)) {
+                logmsg(LOG_ERR, "chroot script exited with exitcode $retval");
+                $this->disable('judgehost', 'hostname', $this->myhost, "chroot script exited with exitcode $retval on $this->myhost");
+                return;
+            }
+            try {
+                $this->runTestRun($judgeTask, $workdir, $workdirpath);
+            } finally {
+                // This stops the chroot in the current directory, which is $workdir again.
+                $this->cleanupJudging($workdir);
+                chdir($workdirpath);
+                // Never remove the directory while the chroot is still mounted in it.
+                if (!str_contains(file_get_contents('/proc/mounts'), " $workdir/")) {
+                    $this->runCommandSafe(['rm', '-rf', $workdir]);
+                }
+            }
+        }
+    }
+
+    /**
+     * @param JudgeTask $judgeTask
+     */
+    private function runTestRun(array $judgeTask, string $workdir, string $workdirpath): void
+    {
+        $judgeTaskId = (int)$judgeTask['judgetaskid'];
+        // The code, followed by the input.
+        $files = $this->request("judgehosts/get_files/testrun/$judgeTaskId", 'GET', '', false);
+        if ($files === null) {
+            return;
+        }
+        [$source, $input] = dj_json_decode($files);
+
+        $this->djconfigRefresh();
+        $compile_config = dj_json_decode($judgeTask['compile_config']);
+        $run_config = dj_json_decode($judgeTask['run_config']);
+        $compare_config = dj_json_decode($judgeTask['compare_config']);
+        $this->setScriptEnvironment($compile_config, $run_config);
+        $output_storage_limit = (int)$this->djconfigGetValue('output_storage_limit');
+
+        $compiled = $this->compile($judgeTask, $workdir, $workdirpath, $compile_config,
+            $this->options['daemonid'] ?? null, $output_storage_limit, [$source]);
+        $result = ['compile_success' => $compiled ? 1 : 0];
+        if (is_readable("$workdir/compile.out")) {
+            $result['output_compile'] = $this->restEncodeFile("$workdir/compile.out", $output_storage_limit);
+        }
+        if ($compiled) {
+            $result += $this->runTestRunProgram($judgeTask, $workdir, $workdirpath, $input['content'],
+                $run_config, $compare_config, $output_storage_limit);
+        }
+
+        $url = sprintf('judgehosts/add-test-run/%s/%d', urlencode($this->myhost), $judgeTaskId);
+        $this->request($url, 'POST', $result, false);
+    }
+
+    /**
+     * Run the compiled code of a test run on its input, like on a testcase without an answer.
+     *
+     * @param JudgeTask $judgeTask
+     * @param RunConfig $run_config
+     * @param CompareConfig $compare_config
+     * @return array<string, string>
+     */
+    private function runTestRunProgram(
+        array $judgeTask,
+        string $workdir,
+        string $workdirpath,
+        string $input,
+        array $run_config,
+        array $compare_config,
+        int $output_storage_limit
+    ): array {
+        $judgeTaskId = (int)$judgeTask['judgetaskid'];
+        [$run_runpath, $error] = $this->fetchExecutable($workdirpath, 'run', $judgeTask['run_script_id'],
+            $run_config['hash'], $judgeTaskId);
+        if (!isset($error)) {
+            [$compare_runpath, $error] = $this->fetchExecutable($workdirpath, 'compare',
+                $judgeTask['compare_script_id'], $compare_config['hash'], $judgeTaskId);
+        }
+        if (isset($error)) {
+            return ['runresult' => 'internal-error'];
+        }
+
+        // The compare script needs an answer, but whether the output matches it does not matter.
+        file_put_contents("$workdir/testrun.in", base64_decode($input));
+        touch("$workdir/testrun.ans");
+        // The chroot of the run is two directories up from the pass directory, so $workdir.
+        $passdir = "$workdir/run/1";
+        mkdir("$passdir/execdir", 0755, true);
+        $this->hardlinkRecursive("$workdir/compile", "$passdir/execdir");
+
+        $hardtimelimit = $run_config['time_limit']
+            + overshoot_time($run_config['time_limit'], $this->djconfigGetValue('timelimit_overshoot'))
+            + $run_config['overshoot'];
+        $timelimit = [
+            'cpu' => [$run_config['time_limit'], $hardtimelimit],
+            'wall' => [$run_config['time_limit'], $hardtimelimit],
+        ];
+        $verdict = $this->testcaseRunInternal("$workdir/testrun.in", "$workdir/testrun.ans", $timelimit, $passdir,
+            $run_runpath, false, $compare_runpath, null, $run_config, $compare_config, $judgeTaskId);
+
+        $result = ['runresult' => str_replace('_', '-', strtolower($verdict->name))];
+        foreach (['output_run' => 'program.out', 'output_error' => 'program.err'] as $key => $file) {
+            if (is_readable("$passdir/$file")) {
+                $result[$key] = $this->restEncodeFile("$passdir/$file", $output_storage_limit);
+            }
+        }
+        $metadata = $this->readMetadata("$passdir/program.meta");
+        if ($metadata !== null) {
+            $result['metadata'] = $this->restEncodeFile("$passdir/program.meta", false);
+            $result['runtime'] = $metadata[$metadata['time-used'] ?? ''] ?? '';
+        }
+        return $result;
+    }
+
+    /**
      * @param JudgeTask[] $row
      */
     private function handlePrefetchTask(array $row, ?string $lastWorkdir, string $workdirpath): void
@@ -761,6 +901,11 @@ class JudgeDaemon
 
         if ($type == 'prefetch') {
             $this->handlePrefetchTask($row, $lastWorkdir, $workdirpath);
+            return;
+        }
+
+        if ($type == 'test_run') {
+            $this->handleTestRunTask($row, $lastWorkdir, $workdirpath);
             return;
         }
 
@@ -1571,6 +1716,8 @@ class JudgeDaemon
     /**
      * @param JudgeTask $judgeTask
      * @param array{script_timelimit: int, script_memory_limit: int, language_extensions: array<string>, filter_compiler_files: bool, hash: string} $compile_config
+     * @param array<array{filename: string, content: string}>|null $sources The base64 encoded code of a test run,
+     *     which is compiled without checking versions and reporting to a judging.
      */
     private function compile(
         array   $judgeTask,
@@ -1578,8 +1725,11 @@ class JudgeDaemon
         string  $workdirpath,
         array   $compile_config,
         ?string $daemonid,
-        int     $output_storage_limit
+        int     $output_storage_limit,
+        ?array  $sources = null
     ): bool {
+        $testRun = $sources !== null;
+
         // Reuse compilation if it already exists.
         if (file_exists("$workdir/compile.success")) {
             return true;
@@ -1587,7 +1737,7 @@ class JudgeDaemon
 
         // Verify compile and runner versions.
         $judgeTaskId = $judgeTask['judgetaskid'];
-        $version_verification = dj_json_decode($this->request('judgehosts/get_version_commands/' . $judgeTaskId, 'GET'));
+        $version_verification = $testRun ? [] : dj_json_decode($this->request('judgehosts/get_version_commands/' . $judgeTaskId, 'GET'));
         if (isset($version_verification['compiler_version_command']) || isset($version_verification['runner_version_command'])) {
             logmsg(LOG_INFO, "  📋 Verifying versions.");
             $versions = [];
@@ -1628,9 +1778,10 @@ class JudgeDaemon
         }
 
         // Get the source code from the DB and store in local file(s).
-        $url = sprintf('judgehosts/get_files/source/%s/%s', $judgeTask['contestid'], $judgeTask['submitid']);
-        $sources = $this->request($url, 'GET');
-        $sources = dj_json_decode($sources);
+        if (!$testRun) {
+            $url = sprintf('judgehosts/get_files/source/%s/%s', $judgeTask['contestid'], $judgeTask['submitid']);
+            $sources = dj_json_decode($this->request($url, 'GET'));
+        }
         $files = [];
         $hasFiltered = false;
         foreach ($sources as $source) {
@@ -1668,8 +1819,10 @@ class JudgeDaemon
             $args = 'compile_success=0' .
                 '&output_compile=' . urlencode(base64_encode($message));
 
-            $url = sprintf('judgehosts/update-judging/%s/%s', urlencode($this->myhost), urlencode((string)$judgeTask['judgetaskid']));
-            $this->request($url, 'PUT', $args);
+            if (!$testRun) {
+                $url = sprintf('judgehosts/update-judging/%s/%s', urlencode($this->myhost), urlencode((string)$judgeTask['judgetaskid']));
+                $this->request($url, 'PUT', $args);
+            }
 
             // Revoke readablity for domjudge-run user to this workdir.
             chmod($workdir, 0700);
@@ -1768,8 +1921,10 @@ class JudgeDaemon
             $args .= '&entry_point=' . urlencode($metadata['entry_point']);
         }
 
-        $url = sprintf('judgehosts/update-judging/%s/%s', urlencode($this->myhost), urlencode((string)$judgeTask['judgetaskid']));
-        $this->request($url, 'PUT', $args);
+        if (!$testRun) {
+            $url = sprintf('judgehosts/update-judging/%s/%s', urlencode($this->myhost), urlencode((string)$judgeTask['judgetaskid']));
+            $this->request($url, 'PUT', $args);
+        }
 
         // Compile error: our job here is done.
         if (!$compile_success) {
@@ -1779,6 +1934,28 @@ class JudgeDaemon
         touch("$workdir/compile.success");
 
         return true;
+    }
+
+    /**
+     * Set configuration variables for shell scripts (compile.sh, build_executable.sh, etc.)
+     *
+     * @param array{script_timelimit: int, script_memory_limit: int, script_filesize_limit: int} $compile_config
+     * @param RunConfig $run_config
+     */
+    private function setScriptEnvironment(array $compile_config, array $run_config): void
+    {
+        // TODO: Consider folding compile.sh into judgedaemon (like compare script execution)
+        // to pass these values directly via CLI args instead of environment variables.
+        putenv('CREATE_WRITABLE_TEMP_DIR=' . (CREATE_WRITABLE_TEMP_DIR ? '1' : ''));
+        putenv('SCRIPTTIMELIMIT=' . $compile_config['script_timelimit']);
+        putenv('SCRIPTMEMLIMIT=' . $compile_config['script_memory_limit']);
+        putenv('SCRIPTFILELIMIT=' . $compile_config['script_filesize_limit']);
+        putenv('MEMLIMIT=' . $run_config['memory_limit']);
+        if ($run_config['entry_point'] !== null) {
+            putenv('ENTRY_POINT=' . $run_config['entry_point']);
+        } else {
+            putenv('ENTRY_POINT');
+        }
     }
 
     /**
@@ -1792,19 +1969,7 @@ class JudgeDaemon
         $run_config = dj_json_decode($judgeTask['run_config']);
         $compare_config = dj_json_decode($judgeTask['compare_config']);
 
-        // Set configuration variables for shell scripts (compile.sh, build_executable.sh, etc.)
-        // TODO: Consider folding compile.sh into judgedaemon (like compare script execution)
-        // to pass these values directly via CLI args instead of environment variables.
-        putenv('CREATE_WRITABLE_TEMP_DIR=' . (CREATE_WRITABLE_TEMP_DIR ? '1' : ''));
-        putenv('SCRIPTTIMELIMIT=' . $compile_config['script_timelimit']);
-        putenv('SCRIPTMEMLIMIT=' . $compile_config['script_memory_limit']);
-        putenv('SCRIPTFILELIMIT=' . $compile_config['script_filesize_limit']);
-        putenv('MEMLIMIT=' . $run_config['memory_limit']);
-        if ($run_config['entry_point'] !== null) {
-            putenv('ENTRY_POINT=' . $run_config['entry_point']);
-        } else {
-            putenv('ENTRY_POINT');
-        }
+        $this->setScriptEnvironment($compile_config, $run_config);
         $output_storage_limit = (int)$this->djconfigGetValue('output_storage_limit');
 
         $workdir = $this->judgingDirectory($workdirpath, $judgeTask);

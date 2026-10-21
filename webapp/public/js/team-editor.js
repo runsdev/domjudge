@@ -127,7 +127,7 @@ function initStatementPanel(problem) {
 function initEditor(editor, form, problem, language) {
     const model = editor.getModel();
     initDrafts(editor, form, problem, language);
-    initRun(editor, language);
+    initRun(editor, problem, language);
 
     let javaClass = javaPublicClass(model.getValue());
     model.onDidChangeContent($.debounce(() => {
@@ -147,8 +147,9 @@ function initEditor(editor, form, problem, language) {
     lintModel(model);
 }
 
-// Run the code with the given input on the Piston server, see SubmissionController::runAction().
-function initRun(editor, language) {
+// Run the code on a judgehost with the input below it, with the limits of the
+// selected problem, see SubmissionController::runAction().
+function initRun(editor, problem, language) {
     const button = document.getElementById('paste-run-button');
     if (!button) {
         return;
@@ -159,35 +160,71 @@ function initRun(editor, language) {
 
     button.addEventListener('click', async () => {
         button.disabled = true;
-        status.textContent = 'Running…';
+        status.textContent = 'Waiting for a judgehost…';
         output.textContent = '';
         try {
             // Unlike FormData, this keeps the line endings.
-            const response = await fetch(button.dataset.url, {
+            const run = await (await fetch(button.dataset.url, {
                 method: 'POST',
-                body: new URLSearchParams({language: language.value, code: editor.getValue(), input: input.value}),
-            });
-            [status.textContent, output.textContent] = runResult(await response.json());
+                body: new URLSearchParams({
+                    problem: problem.value, language: language.value, code: editor.getValue(), input: input.value,
+                }),
+            })).json();
+            if (run.error) {
+                status.textContent = run.error;
+                return;
+            }
+            for (const giveUp = Date.now() + 120000; Date.now() < giveUp;) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                const result = await (await fetch(run.url)).json();
+                if (result.status === 'running') {
+                    status.textContent = 'Running on a judgehost…';
+                } else if (result.status === 'replaced') {
+                    return;
+                } else if (result.status === 'done') {
+                    const [message, stdout, stderr] = runResult(result);
+                    status.textContent = message;
+                    output.replaceChildren(stdout, Object.assign(document.createElement('span'), {
+                        className: 'text-danger', textContent: stderr,
+                    }));
+                    return;
+                }
+            }
+            status.textContent = 'No judgehost ran the code in time; try again.';
         } catch (e) {
             status.textContent = 'Running the code failed.';
+        } finally {
+            button.disabled = false;
         }
-        button.disabled = false;
     });
 }
 
-// The status line and output of a run, from Piston's response.
+// The status line, output and error output of a test run.
 function runResult(result) {
-    if (result.error) {
-        return [result.error, ''];
+    if (!result.compile_success) {
+        return ['Compilation failed', result.compile_output || '', ''];
     }
-    const {compile, run} = result;
-    const compiler = `${result.language} ${result.version}, the judge may differ`;
-    // When compiling fails, Piston repeats its output as the run.
-    if (compile && compile.code !== 0) {
-        return [`${compile.status === 'TO' ? 'Compiling took too long' : 'Compilation failed'} (${compiler})`, compile.output];
+    let message;
+    switch (result.result) {
+        case 'timelimit':
+            message = `Time limit exceeded (the limit is ${result.time_limit} s)`;
+            break;
+        case 'run-error':
+            message = result.memory_bytes >= result.memory_limit * 1024
+                ? `Memory limit exceeded (the limit is ${Math.round(result.memory_limit / 1024)} MB)`
+                : `Run error (exit code ${result.exitcode}${result.signal ? `, signal ${result.signal}` : ''})`;
+            break;
+        case 'output-limit':
+            message = 'Output limit exceeded';
+            break;
+        case 'internal-error':
+            message = 'The judgehost could not run the code';
+            break;
+        default:
+            // There is no answer to compare with, so any other result means the code ran.
+            message = `Finished in ${result.runtime} s`;
     }
-    const message = run.message || `Finished in ${(run.wall_time / 1000).toFixed(2)} s`;
-    return [`${message} (${compiler})`, run.output];
+    return [message, result.output || '', result.error || ''];
 }
 
 // Keep a draft per problem in the browser, so code survives reloads, logouts,

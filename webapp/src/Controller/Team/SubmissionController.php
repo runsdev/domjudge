@@ -4,6 +4,7 @@ namespace App\Controller\Team;
 
 use App\Controller\BaseController;
 use App\Entity\Contest;
+use App\Entity\ContestProblem;
 use App\Entity\Judging;
 use App\Entity\Language;
 use App\Entity\Problem;
@@ -11,12 +12,14 @@ use App\Entity\Submission;
 use App\Entity\SubmissionSource;
 use App\Entity\Team;
 use App\Entity\Testcase;
+use App\Entity\TestRun;
 use App\Form\Type\SubmitProblemType;
 use App\Service\AuthorizedUserService;
 use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
 use App\Service\SubmissionService;
+use App\Utils\Utils;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\NonUniqueResultException;
 use Doctrine\ORM\Query\Expr\Join;
@@ -31,8 +34,6 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
-use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 #[IsGranted('ROLE_TEAM')]
 #[IsGranted(
@@ -113,7 +114,7 @@ class SubmissionController extends BaseController
             'upload_form' => $uploadForm?->createView(),
             'paste_form' => $pasteForm?->createView(),
             'submit_methods' => $submitMethods,
-            'run_available' => (bool)$this->config->get('piston_url'),
+            'allow_test_runs' => $this->config->get('allow_test_runs'),
         ];
         $templateData['validFilenameRegex'] = SubmissionService::FILENAME_REGEX;
         if ($contest && $team) {
@@ -199,20 +200,7 @@ class SubmissionController extends BaseController
         $contestProblem = $problem->getContestProblems()->filter(
             fn($cp) => $cp->getContest() === $contest
         )->first();
-        $extensions = $language->getExtensions();
-        $extension = $extensions[0] ?? 'txt';
-
-        // javac requires a public top-level class to be in a file with the same name.
-        // Other languages use the problem name; the entry point is derived from that.
-        if ($extension === 'java' && preg_match('/^(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:abstract|final|sealed|non-sealed|strictfp)\s+)*public\s+(?:(?:abstract|final|sealed|non-sealed|strictfp)\s+)*(?:class|interface|enum|record)\s+(\w+)/m', $codeContent, $matches)) {
-            $filename = $matches[1] . '.java';
-        } elseif ($contestProblem !== false) {
-            $filename = $contestProblem->getShortname() . '.' . $extension;
-        } else {
-            $filename = 'submission.' . $extension;
-        }
-
-        $filename = SubmissionService::sanitizeFilename($filename);
+        $filename = $this->pasteFilename($language, $contestProblem ?: null, $codeContent);
 
         // Write to temp file and create UploadedFile
         $tmpFile = tempnam(sys_get_temp_dir(), 'dj_paste_');
@@ -223,53 +211,100 @@ class SubmissionController extends BaseController
     }
 
     /**
-     * Run code from the code editor with the given input on the Piston server of the piston_url setting.
+     * javac requires a public top-level class to be in a file with the same name.
+     * Other languages use the problem name; the entry point is derived from that.
+     */
+    private function pasteFilename(Language $language, ?ContestProblem $contestProblem, string $code): string
+    {
+        $extension = $language->getExtensions()[0] ?? 'txt';
+        if ($extension === 'java' && preg_match('/^(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:abstract|final|sealed|non-sealed|strictfp)\s+)*public\s+(?:(?:abstract|final|sealed|non-sealed|strictfp)\s+)*(?:class|interface|enum|record)\s+(\w+)/m', $code, $matches)) {
+            $filename = $matches[1] . '.java';
+        } elseif ($contestProblem !== null) {
+            $filename = $contestProblem->getShortname() . '.' . $extension;
+        } else {
+            $filename = 'submission.' . $extension;
+        }
+        return SubmissionService::sanitizeFilename($filename);
+    }
+
+    /**
+     * Run code from the code editor with input of the team on a judgehost, with the limits of a problem.
      */
     #[Route(path: '/run', name: 'team_run', methods: ['POST'])]
-    public function runAction(Request $request, HttpClientInterface $httpClient): JsonResponse
+    public function runAction(Request $request): JsonResponse
     {
-        $pistonUrl = $this->config->get('piston_url');
-        $contest   = $this->dj->getCurrentContest($this->authService->getUser()->getTeam()->getTeamid());
-        if (!$pistonUrl || !$contest) {
+        $team    = $this->authService->getUser()->getTeam();
+        $contest = $this->dj->getCurrentContest($team->getTeamid());
+        if (!$this->config->get('allow_test_runs') || !$contest || !$contest->getFreezeData()->started()) {
             throw new NotFoundHttpException('Running code is not available.');
         }
 
+        $contestProblem = $this->em->getRepository(ContestProblem::class)
+            ->findByProblemAndContest($contest, (string)$request->request->get('problem'));
+        if (!$contestProblem || !$contestProblem->getAllowSubmit()) {
+            return new JsonResponse(['error' => 'Select a problem to run the code with its limits.'], 400);
+        }
         $language = $this->em->getRepository(Language::class)->findOneBy(['externalid' => $request->request->get('language')]);
         if (!$language || !in_array($language, $this->dj->getAllowedLanguagesForContest($contest), true)) {
             return new JsonResponse(['error' => 'Select a language to run the code.'], 400);
         }
-        $code  = (string)$request->request->get('code');
-        $input = (string)$request->request->get('input');
+        // Like for submissions, use the line endings of the editor.
+        $code  = str_replace("\r\n", "\n", (string)$request->request->get('code'));
+        $input = str_replace("\r\n", "\n", (string)$request->request->get('input'));
         $limit = (int)$this->config->get('sourcesize_limit');
         if (strlen($code) > $limit * 1024 || strlen($input) > $limit * 1024) {
             return new JsonResponse(['error' => sprintf('The code and the input can be at most %d kB each.', $limit)], 400);
         }
 
-        $result = [];
-        try {
-            // Piston uses the languages' external IDs as aliases, e.g. cpp and python3.
-            // The time and memory limits are those of the Piston server.
-            $response = $httpClient->request('POST', rtrim($pistonUrl, '/') . '/api/v2/execute', [
-                'json' => [
-                    'language' => $language->getExternalid(),
-                    'version' => '*',
-                    'files' => [['name' => 'main.' . ($language->getExtensions()[0] ?? 'txt'), 'content' => $code]],
-                    'stdin' => $input,
-                ],
-                'timeout' => 60,
-            ]);
-            $status = $response->getStatusCode();
-            $result = $response->toArray(false);
-        } catch (ExceptionInterface) {
-            $status = 0;
+        $testRun = (new TestRun())
+            ->setTeam($team)
+            ->setLanguage($language)
+            ->setFilename($this->pasteFilename($language, $contestProblem, $code))
+            ->setSource($code)
+            ->setInput($input);
+        $this->dj->queueTestRun($testRun, $contestProblem);
+        return new JsonResponse(['url' => $this->generateUrl('team_run_result', ['testRunId' => $testRun->getTestrunid()])]);
+    }
+
+    /**
+     * The status of a test run and, once done, its result.
+     */
+    #[Route(path: '/run/{testRunId<\d+>}', name: 'team_run_result')]
+    public function runResultAction(int $testRunId): JsonResponse
+    {
+        $testRun = $this->em->getRepository(TestRun::class)->find($testRunId);
+        if (!$testRun || $testRun->getTeam() !== $this->authService->getUser()->getTeam()) {
+            throw new NotFoundHttpException('Test run not found.');
         }
-        if ($status === 400) {
-            return new JsonResponse(['error' => sprintf('Running %s code is not available.', $language->getName())], 400);
+
+        $judgeTask = $testRun->getJudgeTask();
+        if (!$judgeTask?->getValid()) {
+            // A later run of the team took its place in the queue.
+            return new JsonResponse(['status' => 'replaced']);
         }
-        if ($status !== 200) {
-            return new JsonResponse(['error' => 'Running code is not available right now.'], 503);
+        if ($judgeTask->getJudgehost() === null) {
+            return new JsonResponse(['status' => 'queued']);
         }
-        return new JsonResponse(array_intersect_key($result, array_flip(['compile', 'run', 'language', 'version'])));
+        if ($testRun->getCompileSuccess() === null) {
+            return new JsonResponse(['status' => 'running']);
+        }
+
+        $runConfig = Utils::jsonDecode($judgeTask->getRunConfig());
+        $metadata = Utils::parseMetadata($testRun->getMetadata() ?? '');
+        return new JsonResponse([
+            'status' => 'done',
+            'compile_success' => $testRun->getCompileSuccess(),
+            'compile_output' => $testRun->getOutputCompile(),
+            'result' => $testRun->getRunresult(),
+            'runtime' => $testRun->getRuntime(),
+            'output' => $testRun->getOutputRun(),
+            'error' => $testRun->getOutputError(),
+            'exitcode' => $metadata['exitcode'] ?? null,
+            'signal' => $metadata['signal'] ?? null,
+            'memory_bytes' => $metadata['memory-bytes'] ?? null,
+            'time_limit' => $runConfig['time_limit'],
+            'memory_limit' => $runConfig['memory_limit'],
+        ]);
     }
 
     /**

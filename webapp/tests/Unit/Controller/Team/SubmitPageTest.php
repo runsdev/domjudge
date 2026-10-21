@@ -2,16 +2,20 @@
 
 namespace App\Tests\Unit\Controller\Team;
 
+use App\Doctrine\DBAL\Types\JudgeTaskType;
 use App\Entity\Contest;
+use App\Entity\Executable;
+use App\Entity\Judgehost;
 use App\Entity\Language;
 use App\Entity\Problem;
 use App\Entity\Submission;
+use App\Entity\TestRun;
+use App\Service\ConfigurationService;
 use App\Tests\Unit\BaseTestCase;
+use App\Utils\Utils;
 use Doctrine\ORM\EntityManagerInterface;
 use Generator;
 use PHPUnit\Framework\Attributes\DataProvider;
-use Symfony\Component\HttpClient\MockHttpClient;
-use Symfony\Component\HttpClient\Response\MockResponse;
 
 class SubmitPageTest extends BaseTestCase
 {
@@ -258,66 +262,103 @@ class SubmitPageTest extends BaseTestCase
         });
     }
 
-    public function testEditorHasRunButtonWithPiston(): void
+    public function testEditorHasRunButton(): void
     {
         $this->withChangedConfiguration('submit_methods', ['paste'], function (): void {
             $this->verifyPageResponse('GET', '/team/submit', 200);
-            static::assertCount(0, $this->getCurrentCrawler()->filter('#paste-run-button'));
+            static::assertSame('/team/run', $this->getCurrentCrawler()->filter('#paste-run-button')->attr('data-url'));
 
-            $this->withChangedConfiguration('piston_url', 'http://piston.test:2000', function (): void {
+            $this->withChangedConfiguration('allow_test_runs', false, function (): void {
                 $this->verifyPageResponse('GET', '/team/submit', 200);
-                static::assertSame('/team/run', $this->getCurrentCrawler()->filter('#paste-run-button')->attr('data-url'));
+                static::assertCount(0, $this->getCurrentCrawler()->filter('#paste-run-button'));
+                $this->client->request('POST', '/team/run', ['problem' => 'hello', 'language' => 'cpp', 'code' => 'int main() {}']);
+                static::assertResponseStatusCodeSame(404);
             });
         });
     }
 
-    public function testRunNeedsPiston(): void
+    /**
+     * @param array<string, string> $request
+     */
+    #[DataProvider('invalidRunProvider')]
+    public function testRunNeedsProblemAndLanguage(array $request, string $error): void
     {
-        $this->client->request('POST', '/team/run', ['language' => 'cpp', 'code' => 'int main() {}']);
-        static::assertResponseStatusCodeSame(404);
+        $this->client->request('POST', '/team/run', $request + ['code' => 'int main() {}']);
+        static::assertResponseStatusCodeSame(400);
+        static::assertSame(['error' => $error], json_decode($this->client->getResponse()->getContent(), true));
     }
 
-    public function testRunNeedsAllowedLanguage(): void
+    public static function invalidRunProvider(): Generator
     {
-        $this->withChangedConfiguration('piston_url', 'http://piston.test:2000', function (): void {
-            $this->client->request('POST', '/team/run', ['language' => 'nope', 'code' => 'int main() {}']);
-            static::assertResponseStatusCodeSame(400);
-        });
+        yield 'no problem' => [['language' => 'cpp'], 'Select a problem to run the code with its limits.'];
+        yield 'unknown language' => [['problem' => 'hello', 'language' => 'nope'], 'Select a language to run the code.'];
     }
 
-    #[DataProvider('runProvider')]
-    public function testRun(MockResponse $pistonResponse, int $status, array $expected): void
+    /**
+     * A run gets a judge task of its own, outside of any judging, with the limits of the
+     * problem but the default run and compare scripts, so also an interactive problem
+     * like boolfind just reads the input of the team.
+     */
+    public function testRun(): void
     {
-        $requests = [];
-        self::getContainer()->set('http_client', new MockHttpClient(
-            function (string $method, string $url, array $options) use (&$requests, $pistonResponse): MockResponse {
-                $requests[] = [$method, $url, json_decode($options['body'], true)];
-                return $pistonResponse;
-            }
-        ));
+        $this->client->request('POST', '/team/run', [
+            'problem' => 'boolfind', 'language' => 'java', 'code' => "public class Main {\r\n}\r\n", 'input' => "1 2\r\n",
+        ]);
+        static::assertResponseIsSuccessful();
+        $url = json_decode($this->client->getResponse()->getContent(), true)['url'];
 
-        $this->withChangedConfiguration('piston_url', 'http://piston.test:2000/', function () use ($status, $expected, &$requests): void {
-            $this->client->request('POST', '/team/run', ['language' => 'cpp', 'code' => "int main() {}\n", 'input' => "1 2\n"]);
-            static::assertResponseStatusCodeSame($status);
-            static::assertSame($expected, json_decode($this->client->getResponse()->getContent(), true));
-            static::assertSame([[
-                'POST',
-                'http://piston.test:2000/api/v2/execute',
-                ['language' => 'cpp', 'version' => '*', 'files' => [['name' => 'main.cpp', 'content' => "int main() {}\n"]], 'stdin' => "1 2\n"],
-            ]], $requests);
-        });
-    }
+        $em = self::getContainer()->get(EntityManagerInterface::class);
+        $config = self::getContainer()->get(ConfigurationService::class);
+        $testRun = $em->getRepository(TestRun::class)->findOneBy([], ['testrunid' => 'DESC']);
+        static::assertSame("/team/run/{$testRun->getTestrunid()}", $url);
+        static::assertSame(['Main.java', "public class Main {\n}\n", "1 2\n"],
+            [$testRun->getFilename(), $testRun->getSource(), $testRun->getInput()]);
+        $judgeTask = $testRun->getJudgeTask();
+        static::assertSame([JudgeTaskType::TEST_RUN, null, null],
+            [$judgeTask->getType(), $judgeTask->getJobId(), $judgeTask->getSubmission()]);
+        $immutableExecId = fn(string $name) => $em->getRepository(Executable::class)
+            ->find($config->get($name))->getImmutableExecutable()->getImmutableExecId();
+        static::assertSame([$immutableExecId('default_run'), $immutableExecId('default_compare')],
+            [$judgeTask->getRunScriptId(), $judgeTask->getCompareScriptId()]);
+        $problem = $em->getRepository(Problem::class)->findOneBy(['externalid' => 'boolfind']);
+        static::assertEquals($problem->getTimelimit() * $testRun->getLanguage()->getTimeFactor(),
+            Utils::jsonDecode($judgeTask->getRunConfig())['time_limit']);
+        static::assertFalse(Utils::jsonDecode($judgeTask->getCompareConfig())['combined_run_compare']);
 
-    public static function runProvider(): Generator
-    {
-        $result = ['run' => ['stdout' => "3\n", 'code' => 0], 'language' => 'c++', 'version' => '10.2.0'];
-        yield 'ran' => [new MockResponse(json_encode($result + ['other' => 1])), 200, $result];
-        yield 'unknown language' => [
-            new MockResponse('{"message":"cpp-* runtime is unknown"}', ['http_code' => 400]),
-            400,
-            ['error' => 'Running C++ code is not available.'],
-        ];
-        yield 'server error' => [new MockResponse('', ['http_code' => 500]), 503, ['error' => 'Running code is not available right now.']];
-        yield 'server down' => [new MockResponse('', ['error' => 'Connection refused']), 503, ['error' => 'Running code is not available right now.']];
+        // Requests clear the entity manager, so load the test run again after each one.
+        $reload = function () use ($testRun): TestRun {
+            $em = self::getContainer()->get(EntityManagerInterface::class);
+            return $em->getRepository(TestRun::class)->find($testRun->getTestrunid());
+        };
+        $this->client->request('GET', $url);
+        static::assertSame(['status' => 'queued'], json_decode($this->client->getResponse()->getContent(), true));
+
+        $judgehost = (new Judgehost())->setHostname('test-judgehost');
+        $em = self::getContainer()->get(EntityManagerInterface::class);
+        $em->persist($judgehost);
+        $reload()->getJudgeTask()->setJudgehost($judgehost);
+        $em->flush();
+        $this->client->request('GET', $url);
+        static::assertSame(['status' => 'running'], json_decode($this->client->getResponse()->getContent(), true));
+
+        $reload()
+            ->setCompileSuccess(true)
+            ->setRunresult('timelimit')
+            ->setRuntime(5.1)
+            ->setOutputRun('1')
+            ->setOutputError('')
+            ->setMetadata("exitcode: 143\nsignal: 14\nmemory-bytes: 1024\n");
+        self::getContainer()->get(EntityManagerInterface::class)->flush();
+        $this->client->request('GET', $url);
+        $result = json_decode($this->client->getResponse()->getContent(), true);
+        static::assertSame(['done', 'timelimit', 5.1, '1', '143', '14', '1024'], [$result['status'], $result['result'],
+            $result['runtime'], $result['output'], $result['exitcode'], $result['signal'], $result['memory_bytes']]);
+
+        // A next run takes the place of a queued one.
+        $this->client->request('POST', '/team/run', ['problem' => 'hello', 'language' => 'cpp', 'code' => 'int main() {}']);
+        $next = json_decode($this->client->getResponse()->getContent(), true)['url'];
+        $this->client->request('POST', '/team/run', ['problem' => 'hello', 'language' => 'cpp', 'code' => 'int main() {}']);
+        $this->client->request('GET', $next);
+        static::assertSame(['status' => 'replaced'], json_decode($this->client->getResponse()->getContent(), true));
     }
 }

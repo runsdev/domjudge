@@ -50,12 +50,14 @@ Version 10.0.0DEV
    `misc-tools/dj_kiosk`. Team pages no longer open new windows.
  - Problem statements in Markdown, shown in the browser with LaTeX math and
    the samples. Display math (`$$...$$`) in Markdown keeps its backslashes.
- - Team code editor: run code with custom input on a Piston server.
+ - Team code editor: run code with custom input on a judgehost, with the limits
+   of a problem, without submitting it.
  - Configuration changes
    - `submit_methods` now also enables the code editor (`paste`) by default.
    - New `team_lockdown`: require full screen on the team pages, keep copy and
      paste within DOMjudge, and do not offer statements or samples for download.
-   - New `piston_url` for running code from the team code editor.
+   - New `allow_test_runs`, on by default, for running code from the team code
+     editor.
    - `show_balloons_postfreeze` configuration variable superseded by
      `minimum_number_of_balloons` and `any_balloon_postfreeze`.
    - `event_feed_format` configuration variable superseded by

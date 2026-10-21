@@ -170,9 +170,10 @@ completes keywords and common library functions (type ``main`` for a
 program template) and underlines syntax errors. Your code is saved per
 problem in the browser, also after submitting, so you can continue where
 you left off. For Java, the file is named after your public class.
-If there is a *Run* button, it runs your code with the input that you type
-below the editor, without submitting it. It uses other compilers than the
-judge, so the result can differ.
+If there is a *Run* button, it runs your code on the judge with the input that
+you type below the editor, without submitting it, and with the time and memory
+limits of the selected problem. It shows the output, or for example that your
+code exceeded the time limit.
 
 In some contests the team pages only work in full screen, and copy and paste
 only work within DOMjudge.

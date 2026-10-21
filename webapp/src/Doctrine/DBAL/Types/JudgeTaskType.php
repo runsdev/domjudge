@@ -13,12 +13,15 @@ class JudgeTaskType extends Type
     final public const GENERIC_TASK = 'generic_task';
     final public const JUDGING_RUN = 'judging_run';
     final public const PREFETCH = 'prefetch';
+    final public const TEST_RUN = 'test_run';
+    // New types go last, so the database only needs to extend its ENUM.
     final public const ALL_TYPES = [
         self::CONFIG_CHECK,
         self::DEBUG_INFO,
         self::GENERIC_TASK,
         self::JUDGING_RUN,
         self::PREFETCH,
+        self::TEST_RUN,
     ];
 
     public function getSQLDeclaration(array $column, AbstractPlatform $platform): string

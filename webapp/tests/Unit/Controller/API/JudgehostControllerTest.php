@@ -3,8 +3,13 @@
 namespace App\Tests\Unit\Controller\API;
 
 use App\DataFixtures\Test\ExtraJudgehostFixture;
+use App\Entity\ContestProblem;
 use App\Entity\JudgingRun;
+use App\Entity\Language;
 use App\Entity\Submission;
+use App\Entity\Team;
+use App\Entity\TestRun;
+use App\Service\DOMJudgeService;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Generator;
@@ -184,6 +189,64 @@ class JudgehostControllerTest extends BaseTestCase
 
         $this->updateJudging($judgeTaskId, 'Main');
         static::assertEquals('Main', $this->getEntryPoint($submissionId));
+    }
+
+    /**
+     * Test runs go to a judgehost before new judgings, without being part of a judging; only
+     * that judgehost can report the result, and when it restarts, the run is handed out again.
+     */
+    public function testTestRun(): void
+    {
+        // Adding a submission queues a judging.
+        $contestId = $this->getDemoContestId();
+        $this->verifyApiJsonResponse(
+            'POST', "/contests/$contestId/submissions", 200, 'demo',
+            ['problem' => 'hello', 'language' => 'cpp'],
+            ['code' => new UploadedFile(__FILE__, 'somefile.cpp')]
+        );
+
+        $em = static::getContainer()->get(EntityManagerInterface::class);
+        $testRun = (new TestRun())
+            ->setTeam($em->getRepository(Team::class)->findOneBy(['externalid' => 'exteam']))
+            ->setLanguage($em->getRepository(Language::class)->findOneBy(['externalid' => 'cpp']))
+            ->setFilename('A.cpp')
+            ->setSource('int main() {}')
+            ->setInput("1 2\n");
+        static::getContainer()->get(DOMJudgeService::class)->queueTestRun($testRun,
+            $em->getRepository(ContestProblem::class)->findByProblemAndContest($contestId, 'hello'));
+        $judgeTaskId = $testRun->getJudgeTask()->getJudgetaskid();
+
+        $this->registerJudgehost('test-judgehost');
+        $fetchWork = fn() => array_map(
+            fn(array $task) => [$task['type'], $task['judgetaskid'], $task['jobid'] ?? null],
+            json_decode($this->postForm('/judgehosts/fetch-work', ['hostname' => 'test-judgehost'])->getContent(), true)
+        );
+        static::assertSame([['test_run', $judgeTaskId, null]], $fetchWork());
+
+        $files = $this->verifyApiJsonResponse('GET', "/judgehosts/get_files/testrun/$judgeTaskId", 200, 'admin');
+        static::assertSame([['A.cpp', 'int main() {}'], ['input', "1 2\n"]],
+            array_map(fn(array $file) => [$file['filename'], base64_decode($file['content'])], $files));
+
+        // Restarting the judgehost gives the run back.
+        $this->registerJudgehost('test-judgehost');
+        static::assertSame([['test_run', $judgeTaskId, null]], $fetchWork());
+
+        $result = [
+            'compile_success' => '1',
+            'output_compile' => '',
+            'runresult' => 'correct',
+            'runtime' => '0.01',
+            'output_run' => base64_encode("3\n"),
+            'output_error' => '',
+            'metadata' => base64_encode("exitcode: 0\n"),
+        ];
+        $this->registerJudgehost('other-judgehost');
+        static::assertSame(404, $this->postForm("/judgehosts/add-test-run/other-judgehost/$judgeTaskId", $result)->getStatusCode());
+        static::assertSame(204, $this->postForm("/judgehosts/add-test-run/test-judgehost/$judgeTaskId", $result)->getStatusCode());
+        $em->clear();
+        $testRun = $em->getRepository(TestRun::class)->find($testRun->getTestrunid());
+        static::assertSame([true, 'correct', 0.01, "3\n"],
+            [$testRun->getCompileSuccess(), $testRun->getRunresult(), $testRun->getRuntime(), $testRun->getOutputRun()]);
     }
 
     /**

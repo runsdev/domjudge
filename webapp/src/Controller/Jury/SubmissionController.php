@@ -743,7 +743,7 @@ class SubmissionController extends BaseController
             if ($sampleJudgeTask !== null) {
                 $errors = [];
                 $this->maybeGetErrors('Compile config',
-                    $this->dj->getCompileConfig($submission),
+                    $this->dj->getCompileConfig($submission->getLanguage()),
                     $sampleJudgeTask->getCompileConfig(),
                     $errors);
                 $this->maybeGetErrors('Run config',

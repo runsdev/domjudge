@@ -27,6 +27,7 @@ use App\Entity\Team;
 use App\Entity\TeamAffiliation;
 use App\Entity\TeamCategory;
 use App\Entity\Testcase;
+use App\Entity\TestRun;
 use App\Utils\FreezeData;
 use App\Utils\UpdateStrategy;
 use App\Utils\Utils;
@@ -1387,6 +1388,68 @@ class DOMJudgeService implements ResetInterface
         );
     }
 
+    /**
+     * Queue a test run for the judgehosts. It gets the limits of the problem, but always the
+     * default run and compare scripts, so the code reads the input of the team, also for
+     * interactive problems.
+     */
+    public function queueTestRun(TestRun $testRun, ContestProblem $problem): void
+    {
+        // Teams only wait for their last run, so take their earlier ones out of the queue.
+        /** @var JudgeTask[] $earlierTasks */
+        $earlierTasks = $this->em->createQueryBuilder()
+            ->from(JudgeTask::class, 'jt')
+            ->join(TestRun::class, 'tr', Join::WITH, 'tr.judgeTask = jt')
+            ->select('jt')
+            ->andWhere('tr.team = :team')
+            ->andWhere('jt.judgehost IS NULL')
+            ->andWhere('jt.valid = 1')
+            ->setParameter('team', $testRun->getTeam())
+            ->getQuery()
+            ->getResult();
+        foreach ($earlierTasks as $earlierTask) {
+            $earlierTask->setValid(false);
+        }
+
+        $language = $testRun->getLanguage();
+        $compileExecutable = $language->getCompileExecutable()->getImmutableExecutable();
+        $runExecutable = $this->em->getRepository(Executable::class)
+            ->findOneBy(['execid' => $this->config->get('default_run')])->getImmutableExecutable();
+        $compareExecutable = $this->em->getRepository(Executable::class)
+            ->findOneBy(['execid' => $this->config->get('default_compare')])->getImmutableExecutable();
+        $judgeTask = (new JudgeTask())
+            ->setType(JudgeTaskType::TEST_RUN)
+            // No jobid: that is the judging of a judge task, see JudgehostController::serializeJudgeTasks().
+            ->setPriority(JudgeTask::PRIORITY_DEFAULT)
+            ->setCompileScriptId($compileExecutable->getImmutableExecId())
+            ->setRunScriptId($runExecutable->getImmutableExecId())
+            ->setCompareScriptId($compareExecutable->getImmutableExecId())
+            ->setCompileConfig($this->getCompileConfig($language))
+            ->setRunConfig(Utils::jsonEncode([
+                'time_limit' => $problem->getProblem()->getTimelimit() * $language->getTimeFactor(),
+                'memory_limit' => $problem->getProblem()->getMemlimit() ?: $this->config->get('memory_limit'),
+                'output_limit' => $problem->getProblem()->getOutputlimit() ?: $this->config->get('output_limit'),
+                'process_limit' => $this->config->get('process_limit'),
+                'entry_point' => null,
+                'pass_limit' => 1,
+                'hash' => $runExecutable->getHash(),
+                'overshoot' => 0,
+            ]))
+            ->setCompareConfig(Utils::jsonEncode([
+                'script_timelimit' => $this->config->get('script_timelimit'),
+                'script_memory_limit' => $this->config->get('script_memory_limit'),
+                'script_filesize_limit' => $this->config->get('script_filesize_limit'),
+                'compare_args' => null,
+                'combined_run_compare' => false,
+                'hash' => $compareExecutable->getHash(),
+                'is_scoring_problem' => false,
+            ]));
+        $testRun->setJudgeTask($judgeTask);
+        $this->em->persist($judgeTask);
+        $this->em->persist($testRun);
+        $this->em->flush();
+    }
+
     public function getImmutableCompareExecutable(ContestProblem $problem): ImmutableExecutable
     {
         $executable = $problem
@@ -1677,16 +1740,16 @@ class DOMJudgeService implements ResetInterface
         );
     }
 
-    public function getCompileConfig(Submission $submission): string
+    public function getCompileConfig(Language $language): string
     {
-        $compileExecutable = $submission->getLanguage()->getCompileExecutable()->getImmutableExecutable();
+        $compileExecutable = $language->getCompileExecutable()->getImmutableExecutable();
         return Utils::jsonEncode(
             [
                 'script_timelimit' => $this->config->get('script_timelimit'),
                 'script_memory_limit' => $this->config->get('script_memory_limit'),
                 'script_filesize_limit' => $this->config->get('script_filesize_limit'),
-                'language_extensions' => $submission->getLanguage()->getExtensions(),
-                'filter_compiler_files' => $submission->getLanguage()->getFilterCompilerFiles(),
+                'language_extensions' => $language->getExtensions(),
+                'filter_compiler_files' => $language->getFilterCompilerFiles(),
                 'hash' => $compileExecutable->getHash(),
             ]
         );
@@ -1842,7 +1905,7 @@ class DOMJudgeService implements ResetInterface
             ':compile_script_id' => $compileExecutable->getImmutableExecId(),
             ':compare_script_id' => $this->getImmutableCompareExecutable($problem)->getImmutableExecId(),
             ':run_script_id' => $this->getImmutableRunExecutable($problem)->getImmutableExecId(),
-            ':compile_config' => $this->getCompileConfig($submission),
+            ':compile_config' => $this->getCompileConfig($submission->getLanguage()),
             ':run_config' => $this->getRunConfig($problem, $submission, $overshoot),
         ];
         $defaultCompareConfig = $this->getCompareConfig($problem);
