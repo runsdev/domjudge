@@ -158,11 +158,23 @@ async function editorFlow(browser) {
     await login(page);
     log('logged in as team ' + TEAM_USER);
 
-    // Problem list: with only the editor enabled, Submit opens the editor for that problem (no modal).
+    // A Markdown statement opens in a modal with typeset math and the samples.
     await page.goto(BASE + '/team/problems');
+    await page.click('a[href="/team/problems/mdsum/statement"]');
+    const modal = page.locator('.modal.show');
+    await modal.locator('mjx-container').first().waitFor();
+    assert.match(await modal.locator('.modal-dialog').getAttribute('class'), /modal-xl/);
+    assert.equal(await modal.locator('pre').first().textContent(), '2 3\n');
+    await sleep(500);  // the modal fades in
+    await screenshot(page, '00-markdown-statement');
+    await modal.locator('.btn-close').click();
+    log('Markdown statement in a modal with typeset math and samples');
+
+    // Problem list: with only the editor enabled, Solve opens the editor for that problem (no modal).
     assert.equal(await page.locator('a[target="_blank"]').count(), 0, 'no new-window links on the problem list');
     const submitLink = page.locator('.problem-list .card').filter({ hasText: 'Hello World' }).locator('a[href*="/team/submit/"]');
     assert.equal(await submitLink.getAttribute('data-ajax-modal'), null);
+    assert.equal((await submitLink.textContent()).trim(), 'Solve');
     const [submitPage] = await Promise.all([page.waitForResponse(r => /\/team\/submit\/\d+$/.test(r.url())), submitLink.click()]);
     const csp = submitPage.headers()['content-security-policy'];
     log('editor page CSP: ' + csp);
@@ -402,8 +414,8 @@ async function editorFlow(browser) {
 }
 
 async function lockdownFlow(browser) {
-    await importMarkdownProblem();
-    await setConfig({ ...EDITOR_CONFIG, team_lockdown: true });
+    // Lockdown allows only the code editor, also when uploading is on.
+    await setConfig({ ...EDITOR_CONFIG, submit_methods: ['upload', 'paste'], team_lockdown: true });
     const context = await browser.newContext({ viewport: { width: 1600, height: 900 } });
     await context.addInitScript(() => {
         window.__pasteEditor = () => window.monaco && monaco.editor.getEditors().find(e => e.getDomNode().closest('.paste-editor-container'));
@@ -443,20 +455,13 @@ async function lockdownFlow(browser) {
     await page.waitForFunction(() => document.querySelector('dialog.fullscreen-required').open);
     log('in browser full screen no dialog shows, also after opening other pages; leaving it brings the dialog back');
 
-    // Only the Markdown statement, in a modal with typeset math; nothing to download.
+    // No statements or downloads on the problem list, and Solve opens the editor.
     await page.goto(BASE + '/team/problems');
     await enterFullscreen(page);
-    assert.equal(await page.locator('a[href*="samples.zip"], a[href$="/problemset"]').count(), 0, 'no download links');
-    assert.deepEqual(await page.locator('a:has-text("statement")').evaluateAll(as => as.map(a => a.getAttribute('href'))),
-        ['/team/problems/mdsum/statement']);
-    await page.click('a[href="/team/problems/mdsum/statement"]');
-    const modal = page.locator('.modal.show');
-    await modal.locator('mjx-container').first().waitFor();
-    assert.match(await modal.locator('.modal-dialog').getAttribute('class'), /modal-xl/);
-    assert.equal(await modal.locator('pre').first().textContent(), '2 3\n');
-    await sleep(500);  // the modal fades in
-    await screenshot(page, '07-markdown-statement');
-    await modal.locator('.btn-close').click();
+    assert.equal(await page.locator('a:has-text("statement"), a[href*="samples.zip"], a[href$="/problemset"]').count(), 0,
+        'no statement or download links');
+    assert.equal(await page.locator('.problem-list a[href*="/team/submit/"][data-ajax-modal]').count(), 0);
+    await screenshot(page, '07-locked-problem-list');
     for (const url of ['/team/problems/hello/statement', '/team/mdsum/samples.zip', '/team/problemset',
         '/public/problems/mdsum/statement', '/public/mdsum/samples.zip',
         `/api/v4/contests/${CONTEST}/problems/hello/statement`, `/api/v4/contests/${CONTEST}/samples.zip`]) {
@@ -470,12 +475,13 @@ async function lockdownFlow(browser) {
     await page.emulateMedia({ media: 'print' });
     assert.equal(await page.evaluate(() => getComputedStyle(document.body).display), 'none');
     await page.emulateMedia({ media: 'screen' });
-    log('Markdown statement in a modal with typeset math and samples; statements, samples and the problemset cannot be downloaded, saved or printed');
+    log('no statements on the problem list; statements, samples and the problemset cannot be downloaded, saved or printed');
 
-    // The editor shows the Markdown statement too.
+    // The editor shows the Markdown statement, and there is nothing to upload.
     await page.goto(BASE + '/team/submit');
     await enterFullscreen(page);
     await editorReady(page);
+    assert.equal(await page.locator('form[name="submit_problem"], #upload-tab-page').count(), 0, 'no file upload');
     await select(page, 'problem', 'mdsum');
     await select(page, 'language', 'cpp');
     await page.waitForFunction(() => document.querySelector('#paste-statement iframe').getAttribute('src') === '/team/problems/mdsum/statement');
@@ -620,6 +626,7 @@ async function kioskFlow() {
     originalConfig = await api('/config');
     const browser = await chromium.launch({ channel: 'chromium' });
     try {
+        await importMarkdownProblem();
         await setConfig(EDITOR_CONFIG);
         await editorFlow(browser);
         await lockdownFlow(browser);

@@ -355,11 +355,11 @@
             type: bool
             default_value: false
             public: true
-            description: Require full screen on the team pages, keep copy and paste within DOMjudge and do not let teams download statements or samples.
+            description: Require full screen on the team pages, let teams submit with the code editor only, keep copy and paste within DOMjudge and do not let teams download statements or samples.
             docdescription: |
-                Teams then only see Markdown problem statements, shown in the browser; the problemset and statements
-                in other formats are not available to them. The public pages show no statements or samples either.
-                See :ref:`kiosk-mode`.
+                Teams then submit with the code editor only, whatever ``submit_methods`` says, and see Markdown
+                problem statements next to it only; the problemset and statements in other formats are not
+                available to them. The public pages show no statements or samples either. See :ref:`kiosk-mode`.
         -   name: allow_test_runs
             type: bool
             default_value: true

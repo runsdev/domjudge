@@ -259,6 +259,22 @@ class SubmitPageTest extends BaseTestCase
             $links = $this->getCurrentCrawler()->filter('.problem-list a[href*="/team/submit/"]');
             static::assertGreaterThan(0, $links->count());
             static::assertCount(0, $links->filter('[data-ajax-modal]'));
+            static::assertSame('Solve', $links->first()->text());
+        });
+    }
+
+    public function testLockdownOnlyAllowsTheCodeEditor(): void
+    {
+        $this->withChangedConfiguration('submit_methods', ['upload', 'paste'], function (): void {
+            $this->withChangedConfiguration('team_lockdown', true, function (): void {
+                $this->verifyPageResponse('GET', '/team/submit', 200);
+                $crawler = $this->getCurrentCrawler();
+                static::assertCount(0, $crawler->filter('form[name="submit_problem"]'));
+                static::assertCount(1, $crawler->filter('form[name="submit_problem_paste"]'));
+
+                $this->verifyPageResponse('GET', '/team/problems', 200);
+                static::assertCount(0, $this->getCurrentCrawler()->filter('[data-ajax-modal-after="initSubmitModal"]'));
+            });
         });
     }
 

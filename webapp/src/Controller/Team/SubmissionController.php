@@ -72,7 +72,7 @@ class SubmissionController extends BaseController
             $data['languages'] = $problem->getLanguages()->toArray();
         }
 
-        $submitMethods = $this->config->get('submit_methods');
+        $submitMethods = $this->dj->getSubmitMethods();
 
         $uploadForm = null;
         $pasteForm = null;

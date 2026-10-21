@@ -206,8 +206,8 @@ class ProblemControllerTest extends BaseTestCase
     }
 
     /**
-     * In lockdown teams can only view Markdown statements and download nothing,
-     * and the public pages show no statements.
+     * In lockdown teams can only view Markdown statements, in the code editor, and download
+     * nothing, and the public pages show no statements.
      */
     public function testLockdown(): void
     {
@@ -230,8 +230,8 @@ class ProblemControllerTest extends BaseTestCase
             $crawler = $this->client->request('GET', '/team/problems');
             self::assertSelectorExists('script[src*="team-lockdown.js"]');
             self::assertSame(0, $crawler->selectLink('samples')->count());
-            // Only fltcmp has a Markdown statement.
-            self::assertSame(['/team/problems/fltcmp/statement'], $crawler->selectLink('statement')->extract(['href']));
+            // Teams read the Markdown statement of fltcmp next to the code editor only.
+            self::assertSame(0, $crawler->selectLink('statement')->count());
 
             $this->client->request('GET', '/team/problems/fltcmp/statement');
             self::assertResponseIsSuccessful();

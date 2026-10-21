@@ -79,7 +79,7 @@ class TwigGlobalsExtension extends AbstractExtension implements GlobalsInterface
             'doc_links'                     => $this->dj->getDocLinks(),
             'allow_registration'            => $selfRegistrationCategoriesCount !== 0,
             'enable_ranking'                => $this->config->get('enable_ranking'),
-            'submit_methods'                => $this->config->get('submit_methods'),
+            'submit_methods'                => $this->dj->getSubmitMethods(),
             'team_lockdown'                 => $this->config->get('team_lockdown'),
             'editor_themes'                 => [
                 'vs'                        => ['name' => 'Visual Studio (light)'],

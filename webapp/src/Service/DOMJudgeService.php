@@ -728,6 +728,16 @@ class DOMJudgeService implements ResetInterface
     }
 
     /**
+     * How teams can submit in the web interface; in lockdown only with the code editor.
+     *
+     * @return string[]
+     */
+    public function getSubmitMethods(): array
+    {
+        return $this->config->get('team_lockdown') ? ['paste'] : $this->config->get('submit_methods');
+    }
+
+    /**
      * @return array{'name': string, 'link'?: string, 'icon'?: string}
      */
     public function getDocLinks(): array

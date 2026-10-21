@@ -44,9 +44,10 @@ With the ``team_lockdown`` setting, the team pages ask for full screen until
 the browser is in full screen (as with ``dj_kiosk`` or :kbd:`F11`), and copy
 and paste only work within DOMjudge: text copied in other applications cannot
 be pasted into the editor and text copied in DOMjudge does not reach them.
-Dragging text in or out of the pages is blocked as well. Teams can then not
-download, save or print statements, samples or the problemset; only Markdown
-statements are shown, see :doc:`problem-format`, and the public pages show no
+Dragging text in or out of the pages is blocked as well. Teams can then only
+submit with the code editor, and not download, save or print statements,
+samples or the problemset: they see Markdown statements next to the code
+editor only, see :doc:`problem-format`, and the public pages show no
 statements or samples.
 
 The code editor can also run the code with input typed by the team, see
