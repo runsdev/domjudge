@@ -55,8 +55,8 @@ Version 10.0.0DEV
  - Configuration changes
    - `submit_methods` now also enables the code editor (`paste`) by default.
    - New `team_lockdown`: require full screen on the team pages, let teams submit
-     with the code editor only, keep copy and paste within DOMjudge, and do not
-     offer statements or samples for download.
+     with the code editor only, block copy and paste, and do not offer
+     statements or samples for download.
    - New `allow_test_runs`, on by default, for running code from the team code
      editor.
    - `show_balloons_postfreeze` configuration variable superseded by

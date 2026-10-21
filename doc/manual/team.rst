@@ -176,7 +176,7 @@ limits of the selected problem. It shows the output, or for example that your
 code exceeded the time limit.
 
 In some contests the team pages only work in full screen, and copy and paste
-only work within DOMjudge.
+are blocked.
 
 After you hit the submit button and confirm the submission, you will
 be redirected back to your submission list page. On this page, a message

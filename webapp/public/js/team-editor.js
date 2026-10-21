@@ -126,6 +126,10 @@ function initStatementPanel(problem) {
 
 function initEditor(editor, form, problem, language) {
     const model = editor.getModel();
+    // Dragging text to move or copy it is copy and paste as well, see team-lockdown.js.
+    if (window.domjudgeLockdown) {
+        editor.updateOptions({dragAndDrop: false});
+    }
     initDrafts(editor, form, problem, language);
     initRun(editor, problem, language);
 

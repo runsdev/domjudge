@@ -114,7 +114,7 @@ const waitMarkers = (page, regex, what) => page.waitForFunction(
 
 async function suggestions(page, text) {
     await page.keyboard.type(text, { delay: 50 });
-    await page.waitForSelector('.suggest-widget.visible .monaco-list-row', { timeout: 10000 });
+    await page.waitForSelector('.suggest-widget.visible .monaco-list-row', { timeout: 20000 });
     await sleep(300);
     const labels = await page.$$eval('.suggest-widget.visible .monaco-list-row', rows => rows.map(r => r.getAttribute('aria-label')));
     return labels.join(' | ');
@@ -490,50 +490,42 @@ async function lockdownFlow(browser) {
     await screenshot(page, '07-editor-markdown-statement');
     log('the editor shows the Markdown statement with typeset math');
 
-    // Copy and paste only work within DOMjudge: "SYSTEM" (copied in editorFlow()) is not pasted.
+    // No copy, cut or paste: neither "SYSTEM" (copied in editorFlow()) nor text copied in the editor is pasted.
     await setCode(page, 'abc\nxyz\n');
     await page.evaluate(() => { const e = window.__pasteEditor(); e.setPosition({ lineNumber: 3, column: 1 }); e.focus(); });
     await page.keyboard.press('Control+V');
-    await sleep(300);
-    assert.equal(await code(page), 'abc\nxyz\n', 'the system clipboard is not pasted');
     await page.evaluate(() => window.__pasteEditor().setSelection(new monaco.Selection(1, 1, 1, 4)));
     await page.keyboard.press('Control+C');
+    await page.keyboard.press('Control+X');
     await page.evaluate(() => window.__pasteEditor().setPosition({ lineNumber: 3, column: 1 }));
     await page.keyboard.press('Control+V');
-    await page.waitForFunction(() => window.__pasteEditor().getValue() === 'abc\nxyz\nabc');
-    // Copying without a selection copies the line, which is pasted as a line.
-    await page.evaluate(() => window.__pasteEditor().setPosition({ lineNumber: 2, column: 2 }));
+    await sleep(300);
+    assert.equal(await code(page), 'abc\nxyz\n', 'nothing is cut or pasted in the editor');
+    assert.equal(await page.evaluate(() => window.__pasteEditor().getOption(monaco.editor.EditorOption.dragAndDrop)), false,
+        'no moving text in the editor by dragging it');
+    // Text copied in DOMjudge, also from the statement, is pasted nowhere.
+    await frame.click('.problem-statement pre');
+    await frame.evaluate(() => getSelection().selectAllChildren(document.querySelector('.problem-statement pre')));
     await page.keyboard.press('Control+C');
+    await page.click('#paste-run-input');
     await page.keyboard.press('Control+V');
-    await page.waitForFunction(() => window.__pasteEditor().getValue() === 'abc\nxyz\nxyz\nabc');
+    assert.equal(await page.inputValue('#paste-run-input'), '', 'nothing is pasted in the Run input');
     const other = await context.newPage();
     await other.goto(BASE + '/public');
     await other.evaluate(() => document.body.insertAdjacentHTML('afterbegin', '<textarea id="clipboard-probe"></textarea>'));
     await other.click('#clipboard-probe');
     await other.keyboard.press('Control+V');
     const leaked = await other.inputValue('#clipboard-probe');
-    assert.doesNotMatch(leaked, /abc|xyz/, 'copies in DOMjudge do not reach the system clipboard');
+    assert.doesNotMatch(leaked, /abc|2 3/, 'copies in DOMjudge do not reach the system clipboard');
     await other.close();
-    log(`copy and paste within the editor work (also whole lines); the system clipboard is neither pasted nor written (it holds ${JSON.stringify(leaked)})`);
+    log(`copy, cut and paste do nothing in the editor and the Run input; the system clipboard is neither pasted nor written (it holds ${JSON.stringify(leaked)})`);
 
-    // Copy the sample input from the statement into the Run input; cut works in text fields.
-    await frame.click('.problem-statement pre');
-    await frame.evaluate(() => getSelection().selectAllChildren(document.querySelector('.problem-statement pre')));
-    await page.keyboard.press('Control+C');
-    await page.click('#paste-run-input');
-    await page.keyboard.press('Control+A');
-    await page.keyboard.press('Control+V');
-    // Browsers leave out the last newline of a selected <pre>.
-    assert.equal(await page.inputValue('#paste-run-input'), '2 3');
-    await page.fill('#paste-run-input', '2 3\ncut this');
-    await page.evaluate(() => { const t = document.getElementById('paste-run-input'); t.focus(); t.setSelectionRange(4, 12); });
-    await page.keyboard.press('Control+X');
-    assert.equal(await page.inputValue('#paste-run-input'), '2 3\n');
-    log('sample input copied from the statement into the Run input; cutting in it works');
+    // Teams type the sample input themselves.
+    await page.fill('#paste-run-input', '2 3\n');
     const sum = '#include <iostream>\nint main() {\n    long long a, b;\n    std::cin >> a >> b;\n    std::cout << a + b << std::endl;\n}\n';
     await setCode(page, sum);
     assert.equal((await run(page))[1], '5\n');
-    log('Run with the pasted sample input prints the sample output');
+    log('Run with the sample input prints the sample output');
     // The problem has a memory limit of 64 MB.
     await setCode(page, '#include <vector>\nint main() {\n    std::vector<char> v(256 << 20, 1);\n    return v[5];\n}\n');
     const [memoryStatus] = await run(page);
