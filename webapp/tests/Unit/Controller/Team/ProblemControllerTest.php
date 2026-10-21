@@ -206,6 +206,28 @@ class ProblemControllerTest extends BaseTestCase
     }
 
     /**
+     * The answer files of the samples of a multi-pass problem are not its output, so they are
+     * not shown under the statement.
+     */
+    public function testMarkdownStatementOfMultiPassProblemHasNoSamples(): void
+    {
+        $em = self::getContainer()->get(EntityManagerInterface::class);
+        /** @var Problem $problem */
+        $problem = $em->getRepository(Problem::class)->findOneBy(['externalid' => 'jumble']);
+        $problem
+            ->setProblemstatementType('md')
+            ->getProblemStatementContent()
+            ->setContent('Jumble the word.');
+        $em->flush();
+        self::assertNotEmpty($em->getRepository(Testcase::class)->findBy(['problem' => $problem, 'sample' => true]));
+        $this->logIn();
+
+        $crawler = $this->client->request('GET', '/team/problems/jumble/statement');
+        self::assertResponseIsSuccessful();
+        self::assertSame('Jumble the word.', $crawler->filter('.problem-statement')->text());
+    }
+
+    /**
      * In lockdown teams can only view Markdown statements, in the code editor, and download
      * nothing, and the public pages show no statements.
      */

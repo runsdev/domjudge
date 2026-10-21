@@ -772,8 +772,10 @@ abstract class BaseController extends AbstractController
             $request->isXmlHttpRequest() ? 'partials/problem_statement_modal.html.twig' : 'partials/problem_statement_page.html.twig',
             [
                 'problem' => $problem,
-                // Like the samples ZIP, leave out the samples of interactive problems.
-                'samples' => $problem->isInteractiveProblem() ? [] : $this->dj->getSampleTestcases($problem),
+                // The answer files of interactive and multi-pass problems are not their output,
+                // so their statements show the interaction themselves.
+                'samples' => $problem->isInteractiveProblem() || $problem->isMultipassProblem()
+                    ? [] : $this->dj->getSampleTestcases($problem),
             ]
         );
     }
