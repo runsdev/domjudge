@@ -1,0 +1,82 @@
+#!/bin/sh
+# Write a Safe Exam Browser (https://safeexambrowser.org) configuration for team
+# workstations to standard output. Safe Exam Browser then shows DOMjudge in full
+# screen on a desktop of its own, allows no other websites than DOMjudge and the
+# C++ reference at cppreference.com, blocks the clipboard and keeps its browser
+# profile, so drafts in the team code editor survive restarts.
+#
+# Usage: dj_seb_config <DOMjudge team URL> > domjudge.seb
+# Environment: DJ_SEB_QUIT_PASSWORD (password to quit Safe Exam Browser; without
+# it, teams can quit it themselves).
+# See the "Kiosk mode" section in the DOMjudge manual.
+
+set -eu
+
+url="${1:-}"
+case "$url" in
+	http://*|https://*) ;;
+	*)
+		echo "Usage: $0 <DOMjudge team URL, e.g. https://judge.example.org/team> > domjudge.seb" >&2
+		exit 1
+		;;
+esac
+
+host=$(echo "$url" | sed -E 's#^[a-zA-Z]+://([^/?#]*@)?(\[[^]]*\]|[^/:?#]+).*#\2#')
+url=$(echo "$url" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
+quit=""
+if [ -n "${DJ_SEB_QUIT_PASSWORD:-}" ]; then
+	quit="<key>hashedQuitPassword</key><string>$(printf '%s' "$DJ_SEB_QUIT_PASSWORD" | sha256sum | cut -d' ' -f1)</string>"
+fi
+
+# Keys of Safe Exam Browser for Windows, whose defaults are kept otherwise.
+# browserViewMode 1 is full screen, newBrowserWindowByLinkPolicy 1 opens links in
+# the same window, clipboardPolicy 1 blocks the clipboard, and a URL filter rule
+# with action 1 allows a host and its subdomains; everything else is blocked.
+cat <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>startURL</key>
+	<string>$url</string>
+	<key>browserViewMode</key>
+	<integer>1</integer>
+	<key>enableBrowserWindowToolbar</key>
+	<true/>
+	<key>allowBrowsingBackForward</key>
+	<true/>
+	<key>newBrowserWindowByLinkPolicy</key>
+	<integer>1</integer>
+	<key>URLFilterEnable</key>
+	<true/>
+	<key>URLFilterRules</key>
+	<array>
+		<dict>
+			<key>active</key>
+			<true/>
+			<key>regex</key>
+			<false/>
+			<key>expression</key>
+			<string>$host</string>
+			<key>action</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>active</key>
+			<true/>
+			<key>regex</key>
+			<false/>
+			<key>expression</key>
+			<string>cppreference.com</string>
+			<key>action</key>
+			<integer>1</integer>
+		</dict>
+	</array>
+	<key>clipboardPolicy</key>
+	<integer>1</integer>
+	<key>removeBrowserProfile</key>
+	<false/>
+	$quit
+</dict>
+</plist>
+EOF

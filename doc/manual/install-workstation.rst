@@ -80,6 +80,26 @@ The last two turn off all browser extensions and Gemini in Google Chrome.
 Firefox has a ``--kiosk`` option as well and can be restricted in a similar
 way with an enterprise ``policies.json``.
 
+On Windows workstations, `Safe Exam Browser`_ can run DOMjudge instead: in full
+screen on a desktop of its own, without other applications or a clipboard.
+``misc-tools/dj_seb_config`` writes a configuration for it that allows no other
+websites than DOMjudge and the C++ reference at cppreference.com::
+
+  DJ_SEB_QUIT_PASSWORD=secret dj_seb_config https://judge.example.org/team > domjudge.seb
+
+Opening ``domjudge.seb`` on a workstation starts Safe Exam Browser with it.
+Teams need the password to quit it; without ``DJ_SEB_QUIT_PASSWORD`` they can
+quit it themselves. The configuration keeps the browser profile, so drafts in
+the code editor survive restarts. Open it in the configuration tool of Safe
+Exam Browser to change other settings or to encrypt it. As there is no address
+bar, list the C++ reference in ``etc/docs.yaml`` so teams find it under *Docs*,
+for example::
+
+  - name: C++ reference
+    link: https://en.cppreference.com/w/cpp
+
+.. _Safe Exam Browser: https://safeexambrowser.org
+
 .. _submit_client_requirements:
 
 Command line submit client
