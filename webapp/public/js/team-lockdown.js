@@ -53,7 +53,8 @@ if (window.frameElement?.id === 'lockdown-frame') {
     dialog.className = 'fullscreen-required bg-body text-body border rounded p-4';
     dialog.innerHTML = `
         <p>Use DOMjudge in full screen.</p>
-        <button type="button" class="btn btn-primary">Enter full screen</button>`;
+        <button type="button" class="btn btn-primary">Enter full screen</button>
+        <p class="small text-muted mt-3 mb-0">Full screen with F11 stays on when you press Esc or open another website.</p>`;
     const fullscreen = matchMedia('(display-mode: fullscreen)');
     const update = () => {
         if (document.fullscreenElement || fullscreen.matches) {
