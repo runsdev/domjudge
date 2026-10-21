@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>startURL</key>
+	<string>http://localhost:12345/team</string>
+	<key>browserViewMode</key>
+	<integer>1</integer>
+	<key>enableBrowserWindowToolbar</key>
+	<true/>
+	<key>allowBrowsingBackForward</key>
+	<true/>
+	<key>restartExamUseStartURL</key>
+	<true/>
+	<key>newBrowserWindowByLinkPolicy</key>
+	<integer>1</integer>
+	<key>URLFilterEnable</key>
+	<true/>
+	<key>URLFilterRules</key>
+	<array>
+		<dict>
+			<key>active</key>
+			<true/>
+			<key>regex</key>
+			<false/>
+			<key>expression</key>
+			<string>localhost</string>
+			<key>action</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>active</key>
+			<true/>
+			<key>regex</key>
+			<false/>
+			<key>expression</key>
+			<string>cppreference.com</string>
+			<key>action</key>
+			<integer>1</integer>
+		</dict>
+	</array>
+	<key>clipboardPolicy</key>
+	<integer>1</integer>
+	<key>removeBrowserProfile</key>
+	<false/>
+	
+</dict>
+</plist>
